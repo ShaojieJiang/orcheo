@@ -6,6 +6,7 @@ import pytest
 from orcheo_backend.app import dependencies
 from orcheo_backend.app.external_agent_runtime_store import ExternalAgentRuntimeStore
 from orcheo_backend.app.routers import system as system_router
+from orcheo_backend.app.schemas.system import ExternalAgentLoginSessionState
 from tests.backend.authentication_test_utils import create_test_client, reset_auth_state
 
 
@@ -142,6 +143,65 @@ def test_missing_external_agent_login_session_returns_not_found(
     response = client.get("/api/system/external-agents/sessions/missing-session")
 
     assert response.status_code == 404
+
+
+def test_get_external_agent_login_session_missing(monkeypatch, runtime_store):
+    monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
+    client = create_test_client()
+    response = client.get("/api/system/external-agents/sessions/missing")
+
+    assert response.status_code == 404
+
+
+def test_get_external_agent_login_session_returns_existing_session(
+    monkeypatch: pytest.MonkeyPatch,
+    runtime_store: ExternalAgentRuntimeStore,
+) -> None:
+    monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
+    client = create_test_client()
+
+    start = client.post("/api/system/external-agents/codex/login")
+    session_id = start.json()["session_id"]
+
+    response = client.get(f"/api/system/external-agents/sessions/{session_id}")
+
+    assert response.status_code == 200
+    assert response.json()["session_id"] == session_id
+
+
+def test_submit_external_agent_login_input_rejects_terminal_state(
+    monkeypatch: pytest.MonkeyPatch,
+    runtime_store: ExternalAgentRuntimeStore,
+) -> None:
+    monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
+    client = create_test_client()
+    start = client.post("/api/system/external-agents/claude_code/login")
+    session_id = start.json()["session_id"]
+    session = runtime_store.get_login_session(session_id)
+    assert session is not None
+    session.state = ExternalAgentLoginSessionState.AUTHENTICATED
+    runtime_store.save_login_session(session)
+
+    response = client.post(
+        f"/api/system/external-agents/sessions/{session_id}/input",
+        json={"input_text": "foo"},
+    )
+
+    assert response.status_code == 409
+
+
+def test_submit_external_agent_login_input_rejects_empty(monkeypatch, runtime_store):
+    monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
+    client = create_test_client()
+    start = client.post("/api/system/external-agents/claude_code/login")
+    session_id = start.json()["session_id"]
+
+    response = client.post(
+        f"/api/system/external-agents/sessions/{session_id}/input",
+        json={"input_text": "    "},
+    )
+
+    assert response.status_code == 400
 
 
 def test_submit_external_agent_login_input_updates_session(

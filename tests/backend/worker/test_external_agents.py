@@ -4,7 +4,7 @@ from __future__ import annotations
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 import pytest
 from orcheo_backend.app.external_agent_runtime_store import ExternalAgentRuntimeStore
 from orcheo_backend.app.schemas.system import (
@@ -423,6 +423,240 @@ def test_run_login_command_submits_carriage_return_for_raw_tty_input() -> None:
     assert "ENTER-LF:ABCD-1234" not in result.output
 
 
+def test_run_login_command_times_out_and_sends_heartbeats(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo_backend.worker import external_agents as external_agents_module
+
+    heartbeats: list[str] = []
+    monkeypatch.setattr(external_agents_module, "LOGIN_HEARTBEAT_SECONDS", 0.0)
+
+    result = external_agents_module._run_login_command(
+        [
+            "python3",
+            "-c",
+            (
+                "import time; "
+                "print('Waiting for device auth', flush=True); "
+                "time.sleep(30)"
+            ),
+        ],
+        env={},
+        on_output=lambda *_: None,
+        on_tick=lambda: heartbeats.append("tick"),
+        timeout_seconds=1,
+    )
+
+    assert result.timed_out is True
+    assert heartbeats
+
+
+def test_run_login_command_clears_input_after_output_and_when_authenticated() -> None:
+    from orcheo_backend.worker.external_agents import _run_login_command
+
+    script = (
+        "import os, sys, termios, tty, time\n"
+        "fd = sys.stdin.fileno()\n"
+        "old = termios.tcgetattr(fd)\n"
+        "tty.setraw(fd)\n"
+        "sys.stdout.write('Paste code> ')\n"
+        "sys.stdout.flush()\n"
+        "chars = []\n"
+        "try:\n"
+        "    while True:\n"
+        "        ch = os.read(fd, 1)\n"
+        "        if ch == b'\\r':\n"
+        "            print('\\nreceived:' + ''.join(chars), flush=True)\n"
+        "            time.sleep(30)\n"
+        "            break\n"
+        "        chars.append(ch.decode('utf-8', 'replace'))\n"
+        "finally:\n"
+        "    termios.tcsetattr(fd, termios.TCSADRAIN, old)\n"
+    )
+    queued = {"value": "ABCD-1234"}
+    cleared: list[bool] = []
+    authenticated = {"value": False}
+
+    def on_output(output: str, auth_url: str | None, device_code: str | None) -> None:
+        del auth_url, device_code
+        if "received:ABCD-1234" in output:
+            authenticated["value"] = True
+
+    def consume_input(clear: bool) -> str | None:
+        if clear:
+            cleared.append(True)
+            queued["value"] = None
+            return None
+        return queued["value"]
+
+    result = _run_login_command(
+        ["python3", "-c", script],
+        env={},
+        on_output=on_output,
+        consume_input=consume_input,
+        is_authenticated=lambda: authenticated["value"],
+        timeout_seconds=10,
+    )
+
+    assert result.timed_out is False
+    assert len(cleared) >= 2
+
+
+def test_run_login_command_finalizer_terminates_live_process_on_exception(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo_backend.worker import external_agents as external_agents_module
+
+    class DummySelector:
+        def register(self, *args, **kwargs) -> None:
+            return None
+
+        def select(self, timeout: float = 0.0) -> list[object]:
+            return []
+
+        def close(self) -> None:
+            return None
+
+    class DummyProcess:
+        pid = 123
+
+        def poll(self) -> None:
+            return None
+
+    monkeypatch.setattr(external_agents_module.pty, "openpty", lambda: (10, 11))
+    monkeypatch.setattr(external_agents_module, "_set_pty_size", lambda fd: None)
+    monkeypatch.setattr(
+        external_agents_module.os, "set_blocking", lambda fd, value: None
+    )
+    monkeypatch.setattr(
+        external_agents_module.selectors,
+        "DefaultSelector",
+        lambda: DummySelector(),
+    )
+    monkeypatch.setattr(
+        external_agents_module.subprocess,
+        "Popen",
+        lambda *args, **kwargs: DummyProcess(),
+    )
+    monkeypatch.setattr(
+        external_agents_module,
+        "_create_terminal_emulator",
+        lambda: object(),
+    )
+    monkeypatch.setattr(
+        external_agents_module,
+        "_drain_login_output",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+    monkeypatch.setattr(external_agents_module.os, "close", lambda fd: None)
+    terminated: list[int] = []
+    monkeypatch.setattr(
+        external_agents_module,
+        "_terminate_process_group",
+        lambda process: terminated.append(process.pid),
+    )
+
+    with pytest.raises(RuntimeError, match="boom"):
+        external_agents_module._run_login_command(
+            ["dummy"],
+            env={},
+            on_output=lambda *_: None,
+            timeout_seconds=1,
+        )
+
+    assert terminated == [123]
+
+
+def test_run_login_command_handles_forced_awaiting_state_without_consumer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo_backend.worker import external_agents as external_agents_module
+
+    class DummySelector:
+        def register(self, *args, **kwargs) -> None:
+            return None
+
+        def select(self, timeout: float = 0.0) -> list[object]:
+            return []
+
+        def close(self) -> None:
+            return None
+
+    class DummyProcess:
+        pid = 123
+
+        def __init__(self) -> None:
+            self.poll_calls = 0
+
+        def poll(self) -> int | None:
+            self.poll_calls += 1
+            return 0 if self.poll_calls >= 2 else None
+
+        def wait(self, timeout: float = 0.0) -> int:
+            return 0
+
+    process = DummyProcess()
+    drain_results = iter(
+        [
+            ("", "", None, None, None),
+            ("", "new-output", None, None, None),
+            ("", "new-output", None, None, None),
+        ]
+    )
+    forward_results = iter(
+        [
+            ("queued", 1.0, True),
+            ("queued", 1.0, False),
+        ]
+    )
+    monotonic_values = iter([0.0, 1.0, 1.0, 1.5, 1.5])
+
+    monkeypatch.setattr(external_agents_module.pty, "openpty", lambda: (10, 11))
+    monkeypatch.setattr(external_agents_module, "_set_pty_size", lambda fd: None)
+    monkeypatch.setattr(
+        external_agents_module.os, "set_blocking", lambda fd, value: None
+    )
+    monkeypatch.setattr(
+        external_agents_module.selectors,
+        "DefaultSelector",
+        lambda: DummySelector(),
+    )
+    monkeypatch.setattr(
+        external_agents_module.subprocess,
+        "Popen",
+        lambda *args, **kwargs: process,
+    )
+    monkeypatch.setattr(
+        external_agents_module,
+        "_create_terminal_emulator",
+        lambda: object(),
+    )
+    monkeypatch.setattr(
+        external_agents_module,
+        "_drain_login_output",
+        lambda *args, **kwargs: next(drain_results),
+    )
+    monkeypatch.setattr(
+        external_agents_module,
+        "_forward_login_input",
+        lambda *args, **kwargs: next(forward_results),
+    )
+    monkeypatch.setattr(
+        external_agents_module.time, "monotonic", lambda: next(monotonic_values)
+    )
+    monkeypatch.setattr(external_agents_module.os, "close", lambda fd: None)
+
+    result = external_agents_module._run_login_command(
+        ["dummy"],
+        env={},
+        on_output=lambda *_: None,
+        consume_input=None,
+        timeout_seconds=10,
+    )
+
+    assert result.output == "new-output"
+
+
 @pytest.mark.asyncio
 async def test_start_login_clears_stale_claude_oauth_token_before_probe(
     monkeypatch: pytest.MonkeyPatch,
@@ -637,3 +871,567 @@ async def test_refresh_status_drops_stale_login_session(
 
     assert result == {"status": "needs_login"}
     manager.inspect_runtime.assert_called_once_with("claude_code")
+
+
+@pytest.mark.asyncio
+async def test_refresh_status_marks_provider_not_installed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo_backend.worker.external_agents import (
+        refresh_external_agent_status_async,
+    )
+
+    store = ExternalAgentRuntimeStore()
+    store._redis = None
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.get_external_agent_runtime_store",
+        lambda: store,
+    )
+
+    provider = MagicMock()
+    manager = MagicMock()
+    manager.get_provider.return_value = provider
+    manager.inspect_runtime.return_value = (None, None)
+    manager.environment_for_provider.return_value = {}
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.ExternalAgentRuntimeManager",
+        lambda **kwargs: manager,
+    )
+
+    result = await refresh_external_agent_status_async("claude_code")
+
+    assert result == {"status": "not_installed"}
+    status = store.get_provider_status(ExternalAgentProviderName.CLAUDE_CODE)
+    assert status.state == ExternalAgentProviderState.NOT_INSTALLED
+
+
+@pytest.mark.asyncio
+async def test_refresh_status_marks_provider_ready(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo.external_agents.models import (
+        AuthProbeResult,
+        AuthStatus,
+        ResolvedRuntime,
+    )
+    from orcheo_backend.worker.external_agents import (
+        refresh_external_agent_status_async,
+    )
+
+    store = ExternalAgentRuntimeStore()
+    store._redis = None
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.get_external_agent_runtime_store",
+        lambda: store,
+    )
+
+    runtime = ResolvedRuntime(
+        provider="codex",
+        version="1.0.0",
+        install_dir=Path("/tmp/codex"),
+        executable_path=Path("/tmp/codex/bin/codex"),
+        package_name="@openai/codex",
+    )
+    provider = MagicMock()
+    provider.probe_auth.return_value = AuthProbeResult(status=AuthStatus.AUTHENTICATED)
+    manifest = MagicMock(last_auth_ok_at=datetime.now(UTC))
+    manager = MagicMock()
+    manager.get_provider.return_value = provider
+    manager.inspect_runtime.return_value = (runtime, manifest)
+    manager.environment_for_provider.return_value = {}
+    manager.mark_auth_success.return_value = manifest
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.ExternalAgentRuntimeManager",
+        lambda **kwargs: manager,
+    )
+
+    result = await refresh_external_agent_status_async("codex")
+
+    assert result == {"status": "ready"}
+    status = store.get_provider_status(ExternalAgentProviderName.CODEX)
+    assert status.state == ExternalAgentProviderState.READY
+    assert status.authenticated is True
+
+
+@pytest.mark.asyncio
+async def test_refresh_status_returns_error_payload_on_exception(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo_backend.worker.external_agents import (
+        refresh_external_agent_status_async,
+    )
+
+    store = ExternalAgentRuntimeStore()
+    store._redis = None
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.get_external_agent_runtime_store",
+        lambda: store,
+    )
+
+    manager = MagicMock()
+    manager.get_provider.return_value = MagicMock()
+    manager.inspect_runtime.side_effect = RuntimeError("boom")
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.ExternalAgentRuntimeManager",
+        lambda **kwargs: manager,
+    )
+
+    result = await refresh_external_agent_status_async("codex")
+
+    assert result == {"status": "error", "detail": "boom"}
+    status = store.get_provider_status(ExternalAgentProviderName.CODEX)
+    assert status.state == ExternalAgentProviderState.ERROR
+
+
+@pytest.mark.asyncio
+async def test_start_login_returns_missing_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo_backend.worker.external_agents import start_external_agent_login_async
+
+    store = ExternalAgentRuntimeStore()
+    store._redis = None
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.get_external_agent_runtime_store",
+        lambda: store,
+    )
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.ExternalAgentRuntimeManager",
+        lambda **kwargs: MagicMock(get_provider=MagicMock(return_value=MagicMock())),
+    )
+
+    result = await start_external_agent_login_async("codex", "missing")
+
+    assert result == {"status": "missing_session"}
+
+
+@pytest.mark.asyncio
+async def test_start_login_installs_runtime_before_running_oauth(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo.external_agents.models import (
+        AuthProbeResult,
+        AuthStatus,
+        ResolvedRuntime,
+        RuntimeManifest,
+        RuntimeResolution,
+    )
+    from orcheo_backend.worker.external_agents import start_external_agent_login_async
+
+    store = ExternalAgentRuntimeStore()
+    store._redis = None
+    now = datetime.now(UTC)
+    session = ExternalAgentLoginSession(
+        session_id="codex-install",
+        provider=ExternalAgentProviderName.CODEX,
+        display_name="Codex",
+        state=ExternalAgentLoginSessionState.PENDING,
+        created_at=now,
+        updated_at=now,
+    )
+    store.save_login_session(session)
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.get_external_agent_runtime_store",
+        lambda: store,
+    )
+
+    runtime = ResolvedRuntime(
+        provider="codex",
+        version="1.0.0",
+        install_dir=Path("/tmp/codex"),
+        executable_path=Path("/tmp/codex/bin/codex"),
+        package_name="@openai/codex",
+    )
+    manifest = RuntimeManifest(provider="codex", provider_root=Path("/tmp/codex"))
+    provider = MagicMock()
+    provider.probe_auth.return_value = AuthProbeResult(
+        status=AuthStatus.SETUP_NEEDED,
+        message="login required",
+    )
+    provider.oauth_login_command.return_value = ["/tmp/codex/bin/codex", "login"]
+    provider.build_environment.return_value = {}
+    manager = MagicMock()
+    manager.get_provider.return_value = provider
+    manager.inspect_runtime.return_value = (None, None)
+    manager.environment_for_provider.return_value = {}
+    manager.resolve_runtime = AsyncMock(
+        return_value=RuntimeResolution(
+            runtime=runtime,
+            manifest=manifest,
+            maintenance_due=False,
+        )
+    )
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.ExternalAgentRuntimeManager",
+        lambda **kwargs: manager,
+    )
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents._run_login_command",
+        lambda *args, **kwargs: MagicMock(
+            auth_token=None,
+            auth_url=None,
+            device_code=None,
+            output="",
+            timed_out=True,
+        ),
+    )
+
+    result = await start_external_agent_login_async("codex", "codex-install")
+
+    assert result == {"status": "timed_out"}
+    manager.resolve_runtime.assert_called_once_with("codex")
+    updated_session = store.get_login_session("codex-install")
+    assert updated_session is not None
+    assert updated_session.resolved_version == "1.0.0"
+
+
+@pytest.mark.asyncio
+async def test_start_login_returns_ready_when_provider_is_already_authenticated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo.external_agents.models import (
+        AuthProbeResult,
+        AuthStatus,
+        ResolvedRuntime,
+    )
+    from orcheo_backend.worker.external_agents import start_external_agent_login_async
+
+    store = ExternalAgentRuntimeStore()
+    store._redis = None
+    now = datetime.now(UTC)
+    session = ExternalAgentLoginSession(
+        session_id="codex-ready",
+        provider=ExternalAgentProviderName.CODEX,
+        display_name="Codex",
+        state=ExternalAgentLoginSessionState.PENDING,
+        created_at=now,
+        updated_at=now,
+    )
+    store.save_login_session(session)
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.get_external_agent_runtime_store",
+        lambda: store,
+    )
+
+    runtime = ResolvedRuntime(
+        provider="codex",
+        version="1.0.0",
+        install_dir=Path("/tmp/codex"),
+        executable_path=Path("/tmp/codex/bin/codex"),
+        package_name="@openai/codex",
+    )
+    manifest = MagicMock(last_auth_ok_at=datetime.now(UTC))
+    provider = MagicMock()
+    provider.probe_auth.return_value = AuthProbeResult(status=AuthStatus.AUTHENTICATED)
+    manager = MagicMock()
+    manager.get_provider.return_value = provider
+    manager.inspect_runtime.return_value = (runtime, manifest)
+    manager.environment_for_provider.return_value = {}
+    manager.mark_auth_success.return_value = manifest
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.ExternalAgentRuntimeManager",
+        lambda **kwargs: manager,
+    )
+
+    result = await start_external_agent_login_async("codex", "codex-ready")
+
+    assert result == {"status": "ready"}
+    updated_session = store.get_login_session("codex-ready")
+    assert updated_session is not None
+    assert updated_session.state == ExternalAgentLoginSessionState.AUTHENTICATED
+    status = store.get_provider_status(ExternalAgentProviderName.CODEX)
+    assert status.state == ExternalAgentProviderState.READY
+
+
+@pytest.mark.asyncio
+async def test_start_login_persists_worker_updates_and_auth_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo.external_agents.models import (
+        AuthProbeResult,
+        AuthStatus,
+        ResolvedRuntime,
+        RuntimeManifest,
+    )
+    from orcheo_backend.worker.external_agents import start_external_agent_login_async
+
+    store = ExternalAgentRuntimeStore()
+    store._redis = None
+    now = datetime.now(UTC)
+    session = ExternalAgentLoginSession(
+        session_id="claude-auth",
+        provider=ExternalAgentProviderName.CLAUDE_CODE,
+        display_name="Claude Code",
+        state=ExternalAgentLoginSessionState.PENDING,
+        created_at=now,
+        updated_at=now,
+    )
+    store.save_login_session(session)
+    store.save_login_input("claude-auth", "ABCD-1234")
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.get_external_agent_runtime_store",
+        lambda: store,
+    )
+
+    runtime = ResolvedRuntime(
+        provider="claude_code",
+        version="2.0.0",
+        install_dir=Path("/tmp/claude"),
+        executable_path=Path("/tmp/claude/bin/claude"),
+        package_name="@anthropic-ai/claude-code",
+    )
+    manifest = RuntimeManifest(
+        provider="claude_code",
+        provider_root=Path("/tmp/claude"),
+    )
+    provider = MagicMock()
+    provider.probe_auth.side_effect = [
+        AuthProbeResult(status=AuthStatus.SETUP_NEEDED, message="login required"),
+        AuthProbeResult(status=AuthStatus.AUTHENTICATED),
+    ]
+    provider.oauth_login_command.return_value = [
+        "/tmp/claude/bin/claude",
+        "setup-token",
+    ]
+    provider.build_environment.return_value = {
+        "CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-worker"
+    }
+    manager = MagicMock()
+    manager.get_provider.return_value = provider
+    manager.inspect_runtime.return_value = (runtime, manifest)
+    manager.environment_for_provider.return_value = {}
+    manager.mark_auth_success.return_value = MagicMock(
+        last_auth_ok_at=datetime.now(UTC)
+    )
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.ExternalAgentRuntimeManager",
+        lambda **kwargs: manager,
+    )
+
+    def fake_run_login_command(*args, **kwargs):
+        kwargs["on_output"]("waiting for worker auth", None, None)
+        kwargs["on_output"](
+            "Open https://example.com/auth",
+            "https://example.com/auth",
+            "CODE-123",
+        )
+        assert kwargs["consume_input"](False) == "ABCD-1234"
+        kwargs["consume_input"](True)
+        current = store.get_login_session("claude-auth")
+        assert current is not None
+        store.save_login_session(
+            current.model_copy(
+                update={"state": ExternalAgentLoginSessionState.AUTHENTICATED}
+            )
+        )
+        kwargs["on_tick"]()
+        return MagicMock(
+            auth_token="sk-ant-worker",
+            auth_url="https://example.com/auth",
+            device_code="CODE-123",
+            output="worker completed auth",
+            timed_out=False,
+        )
+
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents._run_login_command",
+        fake_run_login_command,
+    )
+
+    result = await start_external_agent_login_async("claude_code", "claude-auth")
+
+    assert result == {"status": "authenticated"}
+    updated_session = store.get_login_session("claude-auth")
+    assert updated_session is not None
+    assert updated_session.state == ExternalAgentLoginSessionState.AUTHENTICATED
+    assert updated_session.auth_url == "https://example.com/auth"
+    assert store.get_login_input("claude-auth") is None
+    assert store.get_provider_environment(ExternalAgentProviderName.CLAUDE_CODE) == {
+        "CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-worker"
+    }
+    status = store.get_provider_status(ExternalAgentProviderName.CLAUDE_CODE)
+    assert status.state == ExternalAgentProviderState.READY
+
+
+@pytest.mark.asyncio
+async def test_start_login_heartbeat_keeps_pending_session_fresh(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo.external_agents.models import (
+        AuthProbeResult,
+        AuthStatus,
+        ResolvedRuntime,
+        RuntimeManifest,
+    )
+    from orcheo_backend.worker.external_agents import start_external_agent_login_async
+
+    store = ExternalAgentRuntimeStore()
+    store._redis = None
+    now = datetime.now(UTC)
+    session = ExternalAgentLoginSession(
+        session_id="claude-heartbeat",
+        provider=ExternalAgentProviderName.CLAUDE_CODE,
+        display_name="Claude Code",
+        state=ExternalAgentLoginSessionState.PENDING,
+        created_at=now,
+        updated_at=now,
+    )
+    store.save_login_session(session)
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.get_external_agent_runtime_store",
+        lambda: store,
+    )
+
+    runtime = ResolvedRuntime(
+        provider="claude_code",
+        version="2.0.0",
+        install_dir=Path("/tmp/claude"),
+        executable_path=Path("/tmp/claude/bin/claude"),
+        package_name="@anthropic-ai/claude-code",
+    )
+    manifest = RuntimeManifest(
+        provider="claude_code",
+        provider_root=Path("/tmp/claude"),
+    )
+    provider = MagicMock()
+    provider.probe_auth.side_effect = [
+        AuthProbeResult(status=AuthStatus.SETUP_NEEDED, message="login required"),
+        AuthProbeResult(status=AuthStatus.SETUP_NEEDED, message="still waiting"),
+    ]
+    provider.oauth_login_command.return_value = [
+        "/tmp/claude/bin/claude",
+        "setup-token",
+    ]
+    provider.build_environment.return_value = {}
+    manager = MagicMock()
+    manager.get_provider.return_value = provider
+    manager.inspect_runtime.return_value = (runtime, manifest)
+    manager.environment_for_provider.return_value = {}
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.ExternalAgentRuntimeManager",
+        lambda **kwargs: manager,
+    )
+
+    def fake_run_login_command(*args, **kwargs):
+        before = store.get_login_session("claude-heartbeat")
+        kwargs["on_tick"]()
+        after = store.get_login_session("claude-heartbeat")
+        assert before is not None
+        assert after is not None
+        assert after.updated_at >= before.updated_at
+        return MagicMock(
+            auth_token=None,
+            auth_url=None,
+            device_code=None,
+            output="",
+            timed_out=True,
+        )
+
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents._run_login_command",
+        fake_run_login_command,
+    )
+
+    result = await start_external_agent_login_async("claude_code", "claude-heartbeat")
+
+    assert result == {"status": "timed_out"}
+
+
+@pytest.mark.asyncio
+async def test_start_login_returns_install_failed_when_runtime_install_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo.external_agents.models import RuntimeInstallError
+    from orcheo_backend.worker.external_agents import start_external_agent_login_async
+
+    store = ExternalAgentRuntimeStore()
+    store._redis = None
+    now = datetime.now(UTC)
+    session = ExternalAgentLoginSession(
+        session_id="install-error",
+        provider=ExternalAgentProviderName.CODEX,
+        display_name="Codex",
+        state=ExternalAgentLoginSessionState.PENDING,
+        created_at=now,
+        updated_at=now,
+    )
+    store.save_login_session(session)
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.get_external_agent_runtime_store",
+        lambda: store,
+    )
+
+    provider = MagicMock()
+    manager = MagicMock()
+    manager.get_provider.return_value = provider
+    manager.inspect_runtime.return_value = (None, None)
+    manager.resolve_runtime.side_effect = RuntimeInstallError(
+        "codex",
+        "install failed",
+        command=["npm", "install"],
+        stdout="",
+        stderr="boom",
+    )
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.ExternalAgentRuntimeManager",
+        lambda **kwargs: manager,
+    )
+
+    result = await start_external_agent_login_async("codex", "install-error")
+
+    assert result == {"status": "install_failed"}
+    updated_session = store.get_login_session("install-error")
+    assert updated_session is not None
+    assert updated_session.state == ExternalAgentLoginSessionState.FAILED
+    status = store.get_provider_status(ExternalAgentProviderName.CODEX)
+    assert status.state == ExternalAgentProviderState.ERROR
+
+
+@pytest.mark.asyncio
+async def test_start_login_returns_error_when_unexpected_exception_occurs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo.external_agents.models import ResolvedRuntime
+    from orcheo_backend.worker.external_agents import start_external_agent_login_async
+
+    store = ExternalAgentRuntimeStore()
+    store._redis = None
+    now = datetime.now(UTC)
+    session = ExternalAgentLoginSession(
+        session_id="unexpected-error",
+        provider=ExternalAgentProviderName.CODEX,
+        display_name="Codex",
+        state=ExternalAgentLoginSessionState.PENDING,
+        created_at=now,
+        updated_at=now,
+    )
+    store.save_login_session(session)
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.get_external_agent_runtime_store",
+        lambda: store,
+    )
+
+    runtime = ResolvedRuntime(
+        provider="codex",
+        version="1.0.0",
+        install_dir=Path("/tmp/codex"),
+        executable_path=Path("/tmp/codex/bin/codex"),
+        package_name="@openai/codex",
+    )
+    provider = MagicMock()
+    provider.probe_auth.side_effect = RuntimeError("boom")
+    manager = MagicMock()
+    manager.get_provider.return_value = provider
+    manager.inspect_runtime.return_value = (runtime, None)
+    manager.environment_for_provider.return_value = {}
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.ExternalAgentRuntimeManager",
+        lambda **kwargs: manager,
+    )
+
+    result = await start_external_agent_login_async("codex", "unexpected-error")
+
+    assert result == {"status": "error", "detail": "boom"}
+    updated_session = store.get_login_session("unexpected-error")
+    assert updated_session is not None
+    assert updated_session.state == ExternalAgentLoginSessionState.FAILED

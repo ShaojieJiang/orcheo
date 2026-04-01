@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import importlib
+import os
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
@@ -455,6 +456,446 @@ def test_sanitize_public_step_payload_strips_trace_metadata() -> None:
             "messages": [{"role": "assistant", "content": "done"}],
         }
     }
+
+
+def test_patched_environment_restores_existing_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    key = "ORCHEO_WORKFLOW_EXECUTION_TEST_ENV"
+    monkeypatch.setenv(key, "original")
+
+    with workflow_execution._patched_environment({key: "override"}):
+        assert os.environ[key] == "override"
+
+    assert os.environ[key] == "original"
+
+
+def test_sensitive_debug_helpers_log_when_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    messages: list[tuple[str, tuple[object, ...]]] = []
+
+    class LoggerStub:
+        def debug(self, message: str, *args: object) -> None:
+            messages.append((message, args))
+
+    monkeypatch.setattr(backend_app_module, "logger", LoggerStub())
+    workflow_execution.configure_sensitive_logging(enable_sensitive_debug=True)
+    try:
+        workflow_execution._log_sensitive_debug("inputs: %s", {"foo": "bar"})
+        workflow_execution._log_step_debug({"node": {"status": "ok"}})
+        workflow_execution._log_final_state_debug({"reply": "done"})
+    finally:
+        workflow_execution.configure_sensitive_logging(enable_sensitive_debug=False)
+
+    assert messages
+
+
+def test_log_final_state_debug_noops_when_disabled() -> None:
+    workflow_execution.configure_sensitive_logging(enable_sensitive_debug=False)
+    workflow_execution._log_final_state_debug({"reply": "done"})
+
+
+@pytest.mark.asyncio
+async def test_safe_send_json_returns_true_on_success() -> None:
+    websocket = AsyncMock()
+
+    assert await workflow_execution._safe_send_json(websocket, {"status": "ok"}) is True
+    websocket.send_json.assert_awaited_once_with({"status": "ok"})
+
+
+@pytest.mark.asyncio
+async def test_emit_trace_update_sends_payload_when_present(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo_backend.app.history import RunHistoryRecord
+
+    history_store = AsyncMock()
+    history_store.get_history = AsyncMock(
+        return_value=RunHistoryRecord(workflow_id="wf", execution_id="exec")
+    )
+    websocket = AsyncMock()
+
+    class Update:
+        def model_dump(self, mode: str = "json") -> dict[str, object]:
+            return {"trace": "payload"}
+
+    monkeypatch.setattr(
+        workflow_execution, "build_trace_update", lambda *args, **kwargs: Update()
+    )
+
+    await workflow_execution._emit_trace_update(history_store, websocket, "exec")
+
+    websocket.send_json.assert_awaited_once_with({"trace": "payload"})
+
+
+@pytest.mark.asyncio
+async def test_emit_trace_update_skips_when_builder_returns_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo_backend.app.history import RunHistoryRecord
+
+    history_store = AsyncMock()
+    history_store.get_history = AsyncMock(
+        return_value=RunHistoryRecord(workflow_id="wf", execution_id="exec")
+    )
+    websocket = AsyncMock()
+    monkeypatch.setattr(
+        workflow_execution, "build_trace_update", lambda *args, **kwargs: None
+    )
+
+    await workflow_execution._emit_trace_update(history_store, websocket, "exec")
+
+    websocket.send_json.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_stream_workflow_updates_logs_final_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    final_state_logs: list[object] = []
+    safe_send = AsyncMock(return_value=True)
+    emit_update = AsyncMock()
+    history_store = AsyncMock()
+    history_store.append_step = AsyncMock(return_value=SimpleNamespace())
+
+    class CompiledGraph:
+        async def astream(self, state: object, *, config: object, stream_mode: str):
+            yield {"node": {"status": "running"}}
+
+        async def aget_state(self, config: object) -> object:
+            return SimpleNamespace(values={"reply": "done"})
+
+    monkeypatch.setattr(workflow_execution, "_safe_send_json", safe_send)
+    monkeypatch.setattr(workflow_execution, "_emit_trace_update", emit_update)
+    monkeypatch.setattr(
+        workflow_execution, "record_workflow_step", lambda tracer, payload: None
+    )
+    monkeypatch.setattr(
+        workflow_execution,
+        "_log_final_state_debug",
+        lambda values: final_state_logs.append(values),
+    )
+
+    await workflow_execution._stream_workflow_updates(
+        CompiledGraph(),
+        {"inputs": {}},
+        {"configurable": {"thread_id": "exec"}},
+        history_store,
+        "exec",
+        AsyncMock(),
+        object(),
+    )
+
+    assert final_state_logs == [{"reply": "done"}]
+
+
+@pytest.mark.asyncio
+async def test_run_workflow_stream_handles_cancellation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    history_store = AsyncMock()
+    emit_update = AsyncMock()
+    cancellation_calls: list[str | None] = []
+    monkeypatch.setattr(
+        workflow_execution,
+        "_stream_workflow_updates",
+        AsyncMock(side_effect=asyncio.CancelledError("stop")),
+    )
+    monkeypatch.setattr(
+        workflow_execution,
+        "_emit_trace_update",
+        emit_update,
+    )
+    monkeypatch.setattr(
+        workflow_execution,
+        "record_workflow_cancellation",
+        lambda span, reason=None: cancellation_calls.append(reason),
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await workflow_execution._run_workflow_stream(
+            object(),
+            {},
+            {},
+            history_store,
+            "exec-cancel",
+            AsyncMock(),
+            object(),
+            object(),
+        )
+
+    history_store.append_step.assert_awaited_once_with(
+        "exec-cancel",
+        {"status": "cancelled", "reason": "stop"},
+    )
+    history_store.mark_cancelled.assert_awaited_once_with("exec-cancel", reason="stop")
+    assert cancellation_calls == ["stop"]
+    emit_update.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_run_workflow_stream_handles_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    history_store = AsyncMock()
+    emit_update = AsyncMock()
+    persist_history = AsyncMock()
+    failure_calls: list[Exception] = []
+    error = RuntimeError("boom")
+    span = SimpleNamespace()
+    monkeypatch.setattr(
+        workflow_execution,
+        "_stream_workflow_updates",
+        AsyncMock(side_effect=error),
+    )
+    monkeypatch.setattr(workflow_execution, "_emit_trace_update", emit_update)
+    monkeypatch.setattr(
+        workflow_execution,
+        "_persist_failure_history",
+        persist_history,
+    )
+    monkeypatch.setattr(
+        workflow_execution,
+        "record_workflow_failure",
+        lambda span, exc: failure_calls.append(exc),
+    )
+
+    with pytest.raises(RuntimeError):
+        await workflow_execution._run_workflow_stream(
+            object(),
+            {},
+            {},
+            history_store,
+            "exec-failed",
+            AsyncMock(),
+            object(),
+            span,
+        )
+
+    persist_history.assert_awaited_once_with(
+        history_store,
+        "exec-failed",
+        {"status": "error", "error": "boom"},
+        "boom",
+        span,
+    )
+    assert failure_calls == [error]
+    emit_update.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_persist_failure_history_marks_run_failed() -> None:
+    history_store = AsyncMock()
+
+    await workflow_execution._persist_failure_history(
+        history_store,
+        "exec-ok",
+        {"status": "error"},
+        "boom",
+        SimpleNamespace(),
+    )
+
+    history_store.append_step.assert_awaited_once_with("exec-ok", {"status": "error"})
+    history_store.mark_failed.assert_awaited_once_with("exec-ok", "boom")
+
+
+@pytest.mark.asyncio
+async def test_execute_workflow_completes_for_invalid_workflow_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    history_store = AsyncMock()
+    history_store.start_run = AsyncMock()
+    history_store.append_step = AsyncMock(return_value=SimpleNamespace())
+    history_store.mark_completed = AsyncMock()
+    websocket = AsyncMock()
+    tracer = object()
+    safe_send = AsyncMock(return_value=True)
+    emit_update = AsyncMock()
+
+    monkeypatch.setattr(workflow_execution, "get_settings", lambda: {})
+    monkeypatch.setattr(workflow_execution, "get_history_store", lambda: history_store)
+    monkeypatch.setattr(workflow_execution, "get_vault", lambda: object())
+    monkeypatch.setattr(
+        workflow_execution,
+        "credential_context_from_workflow",
+        lambda workflow_id: {"workflow_id": workflow_id},
+    )
+    monkeypatch.setattr(
+        workflow_execution,
+        "CredentialResolver",
+        lambda vault, context=None: object(),
+    )
+    monkeypatch.setattr(
+        workflow_execution, "credential_resolution", contextlib.nullcontext
+    )
+    monkeypatch.setattr(workflow_execution, "get_tracer", lambda name: tracer)
+    monkeypatch.setattr(workflow_execution, "_safe_send_json", safe_send)
+    monkeypatch.setattr(workflow_execution, "_emit_trace_update", emit_update)
+    monkeypatch.setattr(
+        workflow_execution,
+        "_run_workflow_stream",
+        AsyncMock(),
+    )
+    monkeypatch.setattr(
+        workflow_execution,
+        "_external_agent_provider_environment",
+        lambda: {},
+    )
+    monkeypatch.setattr(
+        workflow_execution,
+        "_resolve_stored_runnable_config",
+        AsyncMock(return_value=None),
+    )
+    monkeypatch.setattr(
+        workflow_execution,
+        "record_workflow_completion",
+        lambda span: None,
+    )
+
+    class DummyMergedConfig:
+        tags: list[object] = []
+        callbacks: list[object] = []
+        metadata: dict[str, object] = {}
+        run_name = None
+
+        def to_runnable_config(self, execution_id: str) -> dict[str, object]:
+            return {"configurable": {"thread_id": execution_id}}
+
+        def to_state_config(self, execution_id: str) -> dict[str, object]:
+            return {"configurable": {"thread_id": execution_id}}
+
+        def to_json_config(self, execution_id: str) -> dict[str, object]:
+            return {"configurable": {"thread_id": execution_id}}
+
+    monkeypatch.setattr(
+        workflow_execution,
+        "merge_runnable_configs",
+        lambda stored, candidate: DummyMergedConfig(),
+    )
+
+    class DummyCompiledGraph:
+        pass
+
+    class DummyGraph:
+        def compile(
+            self, *, checkpointer: object, store: object | None = None
+        ) -> object:
+            return DummyCompiledGraph()
+
+    class DummyAsyncContext:
+        def __init__(self, value: object) -> None:
+            self.value = value
+
+        async def __aenter__(self) -> object:
+            return self.value
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+    monkeypatch.setattr(backend_app_module, "build_graph", lambda config: DummyGraph())
+    monkeypatch.setattr(
+        backend_app_module,
+        "create_checkpointer",
+        lambda settings: DummyAsyncContext("checkpointer"),
+    )
+    monkeypatch.setattr(
+        backend_app_module,
+        "create_graph_store",
+        lambda settings: DummyAsyncContext("graph_store"),
+    )
+
+    span_context = SimpleNamespace(
+        span=object(),
+        trace_id="trace-id",
+        started_at=datetime.now(tz=UTC),
+    )
+
+    @contextlib.contextmanager
+    def fake_workflow_span(*args: Any, **kwargs: Any):
+        yield span_context
+
+    monkeypatch.setattr(workflow_execution, "workflow_span", fake_workflow_span)
+
+    await execute_workflow(
+        workflow_id="not-a-uuid",
+        graph_config={"nodes": []},
+        inputs={"foo": "bar"},
+        execution_id="exec-success",
+        websocket=websocket,
+    )
+
+    history_store.start_run.assert_awaited_once()
+    history_store.append_step.assert_any_await("exec-success", {"status": "completed"})
+    history_store.mark_completed.assert_awaited_once_with("exec-success")
+    safe_send.assert_any_await(websocket, {"status": "completed"})
+    assert emit_update.await_args_list[-1].kwargs["complete"] is True
+
+
+@pytest.mark.asyncio
+async def test_execute_node_runs_node_with_prepared_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(workflow_execution, "get_vault", lambda: object())
+    monkeypatch.setattr(
+        workflow_execution,
+        "credential_context_from_workflow",
+        lambda workflow_id: {"workflow_id": workflow_id},
+    )
+    monkeypatch.setattr(
+        workflow_execution,
+        "CredentialResolver",
+        lambda vault, context=None: object(),
+    )
+    monkeypatch.setattr(
+        workflow_execution, "credential_resolution", contextlib.nullcontext
+    )
+    monkeypatch.setattr(
+        workflow_execution,
+        "_external_agent_provider_environment",
+        lambda: {"EXTERNAL_AGENT": "1"},
+    )
+    monkeypatch.setattr(workflow_execution.uuid, "uuid4", lambda: UUID(int=99))
+
+    class DummyMergedConfig:
+        def to_runnable_config(self, execution_id: str) -> dict[str, object]:
+            return {"configurable": {"thread_id": execution_id}}
+
+        def to_state_config(self, execution_id: str) -> dict[str, object]:
+            return {"configurable": {"thread_id": execution_id}}
+
+        def to_json_config(self, execution_id: str) -> dict[str, object]:
+            return {}
+
+    monkeypatch.setattr(
+        workflow_execution,
+        "merge_runnable_configs",
+        lambda stored, candidate: DummyMergedConfig(),
+    )
+
+    class NodeStub:
+        def __init__(self, **kwargs: Any) -> None:
+            self.kwargs = kwargs
+
+        async def __call__(
+            self, state: Any, runtime_config: object
+        ) -> dict[str, object]:
+            return {
+                "state": state,
+                "runtime_config": runtime_config,
+            }
+
+    result = await workflow_execution.execute_node(
+        NodeStub,
+        {"name": "node"},
+        {"message": "hello"},
+        workflow_id=UUID(int=7),
+    )
+
+    assert result["runtime_config"] == {
+        "configurable": {"thread_id": str(UUID(int=99))}
+    }
+    assert result["state"]["inputs"] == {"message": "hello"}
 
 
 def _patch_graph_and_checkpointer(monkeypatch: pytest.MonkeyPatch) -> None:

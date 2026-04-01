@@ -3,8 +3,10 @@
 from __future__ import annotations
 import asyncio
 import logging
+import os
 import uuid
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
 from typing import Any, cast
 from uuid import UUID
 from fastapi import WebSocket, WebSocketDisconnect
@@ -51,6 +53,23 @@ from orcheo_backend.app.trace_utils import build_trace_update
 
 
 logger = logging.getLogger(__name__)
+
+
+@contextmanager
+def _patched_environment(updates: Mapping[str, str]) -> Iterator[None]:
+    """Temporarily apply environment variables for the current backend process."""
+    original = {key: os.environ.get(key) for key in updates}
+    for key, value in updates.items():
+        os.environ[key] = value
+    try:
+        yield
+    finally:
+        for key, old_value in original.items():
+            if old_value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = old_value
+
 
 _should_log_sensitive_debug = False
 

@@ -11,10 +11,14 @@ config:
 ---
 graph TD;
 	__start__([<p>START</p>]):::first
+	prepare_prompt(prepare_prompt)
 	claude_code_agent(claude_code_agent)
+	publish_reply(publish_reply)
 	__end__([<p>END</p>]):::last
-	__start__ --> claude_code_agent;
-	claude_code_agent --> __end__;
+	__start__ --> prepare_prompt;
+	claude_code_agent --> publish_reply;
+	prepare_prompt --> claude_code_agent;
+	publish_reply --> __end__;
 	classDef default fill:#f2f0ff,line-height:1.2
 	classDef first fill-opacity:0
 	classDef last fill:#bfb6fc

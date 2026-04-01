@@ -44,7 +44,7 @@ ANSI_ESCAPE_PATTERN = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 CONTROL_CHAR_PATTERN = re.compile(r"[\x00-\x08\x0b-\x1a\x1c-\x1f\x7f]")
 URL_PATTERN = re.compile(r"https?://[^\s]+")
 URL_CONTINUATION_PATTERN = re.compile(r"^[A-Za-z0-9\-._~:/?#\[\]@!$&'()*+,;=%]+$")
-DEVICE_CODE_PATTERN = re.compile(r"\b[A-Z0-9]{4}(?:-[A-Z0-9]{4,})+\b")
+DEVICE_CODE_PATTERN = re.compile(r"\b[A-Z0-9]{3,}(?:-[A-Z0-9]{3,})+\b")
 CLAUDE_OAUTH_TOKEN_PATTERN = re.compile(r"sk-ant-[A-Za-z0-9_-]+")
 CLAUDE_OAUTH_TOKEN_BLOCK_PATTERN = re.compile(
     (
@@ -181,12 +181,13 @@ def _extract_auth_token(output: str) -> str | None:
     if line_block_token is not None:
         return line_block_token
 
-    dewrapped = _dewrap_terminal_segments(output)
-    block_match = CLAUDE_OAUTH_TOKEN_BLOCK_PATTERN.search(dewrapped)
+    block_match = CLAUDE_OAUTH_TOKEN_BLOCK_PATTERN.search(output)
     if block_match is not None:
         collapsed = re.sub(r"\s+", "", block_match.group("token"))
         if collapsed.startswith("sk-ant-"):
             return collapsed
+
+    dewrapped = _dewrap_terminal_segments(output)
     fuzzy_match = CLAUDE_OAUTH_TOKEN_FUZZY_BLOCK_PATTERN.search(dewrapped)
     if fuzzy_match is not None:
         collapsed = re.sub(r"\s+", "", fuzzy_match.group("token"))

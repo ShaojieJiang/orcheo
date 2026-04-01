@@ -411,3 +411,21 @@ def test_resolve_chatkit_selected_model_rejects_unknown_candidate() -> None:
     result = resolve_chatkit_selected_model(workflow, "openai:gpt-6")
 
     assert result == "openai:gpt-5"
+
+
+def test_apply_chatkit_selected_model_drops_all_disabled_models() -> None:
+    workflow = Workflow(
+        name="Picker",
+        chatkit=WorkflowChatKitConfig(
+            supported_models=[
+                {"id": "openai:gpt-5", "disabled": True},
+                {"id": "openai:gpt-5-mini", "disabled": True},
+            ]
+        ),
+    )
+    inputs = {"message": "hello", "model": "openai:gpt-5"}
+
+    selected_model = apply_chatkit_selected_model(inputs, workflow)
+
+    assert selected_model is None
+    assert inputs == {"message": "hello"}

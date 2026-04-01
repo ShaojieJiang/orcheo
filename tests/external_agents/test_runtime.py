@@ -14,20 +14,26 @@ from orcheo.external_agents.manifest import RuntimeManifestStore, provider_lock
 from orcheo.external_agents.models import (
     AuthProbeResult,
     AuthStatus,
+    ProcessExecutionResult,
     ProviderLockUnavailableError,
     ResolvedRuntime,
     RuntimeInstallError,
     RuntimeManifest,
+    RuntimeVerificationError,
     WorkingDirectoryValidationError,
 )
 from orcheo.external_agents.paths import (
     default_runtime_root,
+    provider_environment_path,
     validate_working_directory,
 )
 from orcheo.external_agents.providers.base import NpmCliProvider
 from orcheo.external_agents.providers.claude_code import ClaudeCodeProvider
 from orcheo.external_agents.providers.codex import CodexProvider
-from orcheo.external_agents.runtime import ExternalAgentRuntimeManager
+from orcheo.external_agents.runtime import (
+    ExternalAgentRuntimeManager,
+    scoped_external_agent_environment,
+)
 
 
 class FakeProvider(NpmCliProvider):
@@ -153,6 +159,21 @@ def test_default_runtime_root_falls_back_to_home(tmp_path: Path) -> None:
     assert resolved == home_directory / ".orcheo" / "agent-runtimes"
 
 
+def test_resolved_runtime_model_dump_serializes_paths(tmp_path: Path) -> None:
+    runtime = ResolvedRuntime(
+        provider="codex",
+        version="1.2.3",
+        install_dir=tmp_path / "runtime",
+        executable_path=tmp_path / "runtime" / "bin" / "codex",
+        package_name="@openai/codex",
+    )
+
+    payload = runtime.model_dump(mode="json")
+
+    assert payload["install_dir"] == str(tmp_path / "runtime")
+    assert payload["executable_path"] == str(tmp_path / "runtime" / "bin" / "codex")
+
+
 def test_manifest_store_round_trip(tmp_path: Path) -> None:
     """Manifest store persists and reloads runtime metadata."""
     store = RuntimeManifestStore(tmp_path)
@@ -236,6 +257,39 @@ def test_validate_working_directory_surfaces_missing_git(
         validate_working_directory(repo, runtime_root=runtime_root)
 
 
+def test_validate_working_directory_rejects_non_directory(tmp_path: Path) -> None:
+    runtime_root = tmp_path / "agent-runtimes"
+    runtime_root.mkdir()
+    file_path = tmp_path / "not-a-dir.txt"
+    file_path.write_text("x", encoding="utf-8")
+
+    with pytest.raises(WorkingDirectoryValidationError, match="is not a directory"):
+        validate_working_directory(file_path, runtime_root=runtime_root)
+
+
+def test_validate_working_directory_rejects_root_directory(tmp_path: Path) -> None:
+    runtime_root = tmp_path / "agent-runtimes"
+    runtime_root.mkdir()
+
+    with pytest.raises(WorkingDirectoryValidationError, match="against '/'"):
+        validate_working_directory("/", runtime_root=runtime_root)
+
+
+def test_validate_working_directory_rejects_home_directory(tmp_path: Path) -> None:
+    runtime_root = tmp_path / "agent-runtimes"
+    runtime_root.mkdir()
+    home_directory = tmp_path / "home"
+    home_directory.mkdir()
+    subprocess.run(["git", "-C", str(home_directory), "init", "--quiet"], check=True)
+
+    with pytest.raises(WorkingDirectoryValidationError, match="worker home directory"):
+        validate_working_directory(
+            home_directory,
+            runtime_root=runtime_root,
+            home_directory=home_directory,
+        )
+
+
 def test_maintenance_due_uses_last_check_and_install_time(tmp_path: Path) -> None:
     """Maintenance due is driven by last_checked_at, falling back to installed_at."""
     manager = ExternalAgentRuntimeManager(runtime_root=tmp_path)
@@ -260,6 +314,11 @@ def test_maintenance_due_uses_last_check_and_install_time(tmp_path: Path) -> Non
     assert manager.maintenance_due(old_manifest, now=now) is True
     assert manager.maintenance_due(fresh_manifest, now=now) is False
     assert manager.maintenance_due(checked_manifest, now=now) is False
+
+
+def test_maintenance_due_returns_true_when_manifest_missing(tmp_path: Path) -> None:
+    manager = ExternalAgentRuntimeManager(runtime_root=tmp_path)
+    assert manager.maintenance_due(None) is True
 
 
 @pytest.mark.asyncio
@@ -360,6 +419,37 @@ def test_codex_provider_builds_expected_command() -> None:
     assert "System instructions:" in command[-1]
 
 
+def test_codex_provider_builds_expected_command_without_system_prompt() -> None:
+    provider = CodexProvider()
+    runtime = ResolvedRuntime(
+        provider="codex",
+        version="0.0.1",
+        install_dir=Path("/tmp/codex"),
+        executable_path=Path("/tmp/codex/bin/codex"),
+        package_name=provider.package_name,
+    )
+
+    command = provider.build_command(runtime, prompt="fix tests")
+
+    assert command[-1] == "fix tests"
+
+
+def test_codex_provider_renders_login_instructions() -> None:
+    provider = CodexProvider()
+    runtime = ResolvedRuntime(
+        provider="codex",
+        version="0.0.1",
+        install_dir=Path("/tmp/codex"),
+        executable_path=Path("/tmp/codex/bin/codex"),
+        package_name=provider.package_name,
+    )
+
+    assert provider.render_login_instructions(runtime) == [
+        "/tmp/codex/bin/codex login",
+        "export CODEX_API_KEY=<api-key>",
+    ]
+
+
 def test_codex_provider_uses_device_auth_login() -> None:
     """Codex provider should use device auth for remote worker login flows."""
     provider = CodexProvider()
@@ -441,6 +531,38 @@ def test_claude_provider_builds_expected_command() -> None:
     assert "--append-system-prompt" in command
 
 
+def test_claude_provider_builds_expected_command_without_system_prompt() -> None:
+    provider = ClaudeCodeProvider()
+    runtime = ResolvedRuntime(
+        provider="claude_code",
+        version="0.0.1",
+        install_dir=Path("/tmp/claude"),
+        executable_path=Path("/tmp/claude/bin/claude"),
+        package_name=provider.package_name,
+    )
+
+    command = provider.build_command(runtime, prompt="review")
+
+    assert "--append-system-prompt" not in command
+
+
+def test_claude_provider_renders_login_instructions() -> None:
+    provider = ClaudeCodeProvider()
+    runtime = ResolvedRuntime(
+        provider="claude_code",
+        version="0.0.1",
+        install_dir=Path("/tmp/claude"),
+        executable_path=Path("/tmp/claude/bin/claude"),
+        package_name=provider.package_name,
+    )
+
+    assert provider.render_login_instructions(runtime) == [
+        "/tmp/claude/bin/claude setup-token",
+        "export CLAUDE_CODE_OAUTH_TOKEN=<oauth-token>",
+        "export ANTHROPIC_API_KEY=<api-key>",
+    ]
+
+
 def test_provider_version_parsing_and_auth_probes(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -517,6 +639,89 @@ def test_provider_version_parsing_and_auth_probes(
     assert oauth_claude.status == AuthStatus.AUTHENTICATED
 
 
+def test_claude_probe_auth_handles_subprocess_errors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = ClaudeCodeProvider()
+    runtime = ResolvedRuntime(
+        provider="claude_code",
+        version="0.0.1",
+        install_dir=tmp_path,
+        executable_path=tmp_path / "bin" / "claude",
+        package_name=provider.package_name,
+    )
+
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        Mock(side_effect=OSError("boom")),
+    )
+
+    result = provider.probe_auth(runtime, environ={})
+    assert result.status == AuthStatus.SETUP_NEEDED
+
+
+def test_claude_probe_auth_handles_invalid_json_payload(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = ClaudeCodeProvider()
+    runtime = ResolvedRuntime(
+        provider="claude_code",
+        version="0.0.1",
+        install_dir=tmp_path,
+        executable_path=tmp_path / "bin" / "claude",
+        package_name=provider.package_name,
+    )
+
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        Mock(
+            return_value=subprocess.CompletedProcess(
+                args=["claude", "auth", "status"],
+                returncode=0,
+                stdout="{invalid-json",
+                stderr="",
+            )
+        ),
+    )
+
+    result = provider.probe_auth(runtime, environ={})
+    assert result.status == AuthStatus.SETUP_NEEDED
+
+
+def test_claude_probe_auth_handles_nonzero_status_check(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = ClaudeCodeProvider()
+    runtime = ResolvedRuntime(
+        provider="claude_code",
+        version="0.0.1",
+        install_dir=tmp_path,
+        executable_path=tmp_path / "bin" / "claude",
+        package_name=provider.package_name,
+    )
+
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        Mock(
+            return_value=subprocess.CompletedProcess(
+                args=["claude", "auth", "status"],
+                returncode=1,
+                stdout="",
+                stderr="not logged in",
+            )
+        ),
+    )
+
+    result = provider.probe_auth(runtime, environ={})
+    assert result.status == AuthStatus.SETUP_NEEDED
+
+
 def test_runtime_manager_persists_provider_environment(tmp_path: Path) -> None:
     """Provider-specific environment variables should persist across managers."""
     manager = ExternalAgentRuntimeManager(runtime_root=tmp_path, environ={})
@@ -534,3 +739,519 @@ def test_runtime_manager_persists_provider_environment(tmp_path: Path) -> None:
 
     assert first["CLAUDE_CODE_OAUTH_TOKEN"] == "sk-ant-test-token"
     assert second["CLAUDE_CODE_OAUTH_TOKEN"] == "sk-ant-test-token"
+
+
+def test_runtime_manager_respects_scoped_environment_overrides(tmp_path: Path) -> None:
+    """Scoped environment overrides should influence managers created within the context."""  # noqa: E501
+    with scoped_external_agent_environment({"SCOPED_VAR": "scoped-value"}):
+        scoped_manager = ExternalAgentRuntimeManager(runtime_root=tmp_path, environ={})
+        assert scoped_manager.environ["SCOPED_VAR"] == "scoped-value"
+
+    non_scoped_manager = ExternalAgentRuntimeManager(runtime_root=tmp_path, environ={})
+    assert "SCOPED_VAR" not in non_scoped_manager.environ
+
+
+def test_get_provider_unknown_raises(tmp_path: Path) -> None:
+    manager = ExternalAgentRuntimeManager(runtime_root=tmp_path, providers={})
+    with pytest.raises(ValueError, match="Unknown external agent provider"):
+        manager.get_provider("missing")
+
+
+def test_validate_working_directory_delegates_to_paths_helper(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manager = ExternalAgentRuntimeManager(runtime_root=tmp_path)
+    expected = tmp_path / "repo"
+    monkeypatch.setattr(
+        "orcheo.external_agents.runtime.validate_working_directory",
+        lambda candidate, *, runtime_root: expected,
+    )
+
+    assert manager.validate_working_directory("repo") == expected
+
+
+def test_save_provider_environment_removes_empty_values(tmp_path: Path) -> None:
+    manager = ExternalAgentRuntimeManager(runtime_root=tmp_path, environ={})
+    manager.save_provider_environment("claude_code", {"FOO": "bar"})
+    updated = manager.save_provider_environment("claude_code", {"FOO": " ", "BAR": "1"})
+
+    assert "FOO" not in updated
+    assert manager.environ["BAR"] == "1"
+
+
+def test_maintenance_due_without_timestamps_is_true(tmp_path: Path) -> None:
+    manager = ExternalAgentRuntimeManager(runtime_root=tmp_path)
+    manifest = RuntimeManifest(provider="codex", provider_root=tmp_path / "codex")
+    assert manager.maintenance_due(manifest) is True
+
+
+def test_mark_auth_success_updates_manifest_timestamp(tmp_path: Path) -> None:
+    manager = ExternalAgentRuntimeManager(runtime_root=tmp_path)
+    manifest = RuntimeManifest(provider="codex", provider_root=tmp_path / "codex")
+    manager.manifest_store.save(manifest)
+
+    updated = manager.mark_auth_success("codex")
+
+    assert updated.last_auth_ok_at is not None
+
+
+def test_inspect_runtime_returns_runtime_when_executable_exists(
+    tmp_path: Path,
+) -> None:
+    provider = FakeProvider()
+    manager = ExternalAgentRuntimeManager(
+        runtime_root=tmp_path,
+        providers={provider.name: provider},
+    )
+    runtime_dir = tmp_path / provider.name / "runtimes" / "1.0.0"
+    bin_dir = runtime_dir / "bin"
+    bin_dir.mkdir(parents=True)
+    executable = bin_dir / provider.executable_name
+    executable.write_text("", encoding="utf-8")
+    manifest = RuntimeManifest(
+        provider=provider.name,
+        provider_root=tmp_path / provider.name,
+        current_version="1.0.0",
+        current_runtime_path=runtime_dir,
+    )
+    manager.manifest_store.save(manifest)
+
+    resolved, _ = manager.inspect_runtime(provider.name)
+    assert resolved is not None
+    assert resolved.version == "1.0.0"
+
+
+@pytest.mark.asyncio
+async def test_run_maintenance_installs_when_manifest_missing(
+    tmp_path: Path,
+) -> None:
+    provider = FakeProvider()
+    manager = ExternalAgentRuntimeManager(
+        runtime_root=tmp_path,
+        providers={provider.name: provider},
+    )
+    runtime = ResolvedRuntime(
+        provider=provider.name,
+        version="2.0.0",
+        install_dir=tmp_path / "runtimes" / "2.0.0",
+        executable_path=tmp_path
+        / "runtimes"
+        / "2.0.0"
+        / "bin"
+        / provider.executable_name,
+        package_name=provider.package_name,
+    )
+    manifest = RuntimeManifest(
+        provider=provider.name,
+        provider_root=tmp_path / provider.name,
+        current_version="2.0.0",
+        current_runtime_path=runtime.install_dir,
+    )
+
+    async def fake_install(self, _provider, _manifest):
+        return runtime, manifest
+
+    manager._install_latest_locked = fake_install.__get__(
+        manager, ExternalAgentRuntimeManager
+    )
+
+    result = await manager.run_maintenance(provider.name)
+
+    assert result.runtime.version == "2.0.0"
+    assert result.manifest.current_version == "2.0.0"
+    assert result.maintenance_due is False
+
+
+@pytest.mark.asyncio
+async def test_run_maintenance_installs_when_current_runtime_missing(
+    tmp_path: Path,
+) -> None:
+    provider = FakeProvider()
+    manager = ExternalAgentRuntimeManager(
+        runtime_root=tmp_path,
+        providers={provider.name: provider},
+    )
+    missing_runtime = tmp_path / provider.name / "runtimes" / "missing"
+    manifest = RuntimeManifest(
+        provider=provider.name,
+        provider_root=tmp_path / provider.name,
+        current_version="1.0.0",
+        current_runtime_path=missing_runtime,
+    )
+    manager.manifest_store.save(manifest)
+    runtime = ResolvedRuntime(
+        provider=provider.name,
+        version="3.0.0",
+        install_dir=tmp_path / provider.name / "runtimes" / "3.0.0",
+        executable_path=tmp_path
+        / provider.name
+        / "runtimes"
+        / "3.0.0"
+        / "bin"
+        / provider.executable_name,
+        package_name=provider.package_name,
+    )
+
+    async def fake_install(self, _provider, _manifest):
+        return runtime, RuntimeManifest(
+            provider=provider.name,
+            provider_root=tmp_path / provider.name,
+            current_version="3.0.0",
+            current_runtime_path=runtime.install_dir,
+        )
+
+    manager._install_latest_locked = fake_install.__get__(
+        manager, ExternalAgentRuntimeManager
+    )
+
+    result = await manager.run_maintenance(provider.name)
+    assert result.runtime.version == "3.0.0"
+    assert result.maintenance_due is False
+
+
+@pytest.mark.asyncio
+async def test_run_maintenance_returns_current_runtime_when_not_due(
+    tmp_path: Path,
+) -> None:
+    provider = FakeProvider()
+    manager = ExternalAgentRuntimeManager(
+        runtime_root=tmp_path,
+        providers={provider.name: provider},
+    )
+    now = datetime.now(UTC)
+    runtime_dir = tmp_path / provider.name / "runtimes" / "fresh"
+    bin_dir = runtime_dir / "bin"
+    bin_dir.mkdir(parents=True)
+    (bin_dir / provider.executable_name).write_text("", encoding="utf-8")
+    manifest = RuntimeManifest(
+        provider=provider.name,
+        provider_root=tmp_path / provider.name,
+        current_version="1.1.1",
+        current_runtime_path=runtime_dir,
+        installed_at=now - timedelta(days=1),
+        last_checked_at=now,
+    )
+    manager.manifest_store.save(manifest)
+
+    async def _fail_install(
+        *args: object, **kwargs: object
+    ) -> tuple[ResolvedRuntime, RuntimeManifest]:
+        raise AssertionError("install should not be called")
+
+    manager._install_latest_locked = _fail_install  # type: ignore[assignment]
+
+    result = await manager.run_maintenance(provider.name)
+    assert result.runtime.version == "1.1.1"
+    assert result.manifest.current_version == "1.1.1"
+    assert result.maintenance_due is False
+
+
+def test_mark_auth_success_requires_manifest(tmp_path: Path) -> None:
+    manager = ExternalAgentRuntimeManager(runtime_root=tmp_path)
+    with pytest.raises(ValueError, match="Cannot record auth success"):
+        manager.mark_auth_success("unknown")
+
+
+@pytest.mark.asyncio
+async def test_install_latest_locked_raises_on_install_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    provider = StubInstallProvider()
+    manager = ExternalAgentRuntimeManager(
+        runtime_root=tmp_path,
+        providers={provider.name: provider},
+    )
+
+    async def fake_install(
+        command: list[str], **kwargs: object
+    ) -> ProcessExecutionResult:
+        return ProcessExecutionResult(
+            command=command,
+            exit_code=1,
+            stdout="",
+            stderr="",
+            duration_seconds=0,
+        )
+
+    monkeypatch.setattr(
+        "orcheo.external_agents.runtime.execute_process",
+        fake_install,
+    )
+
+    with pytest.raises(RuntimeInstallError):
+        await manager._install_latest_locked(provider, None)
+
+
+@pytest.mark.asyncio
+async def test_install_latest_locked_raises_when_executable_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    provider = StubInstallProvider()
+    manager = ExternalAgentRuntimeManager(
+        runtime_root=tmp_path,
+        providers={provider.name: provider},
+    )
+
+    async def fake_execute(
+        command: list[str], **kwargs: object
+    ) -> ProcessExecutionResult:
+        if command[0] == "stub-install":
+            return ProcessExecutionResult(
+                command=command,
+                exit_code=0,
+                stdout="",
+                stderr="",
+                duration_seconds=0,
+            )
+        return ProcessExecutionResult(
+            command=command,
+            exit_code=0,
+            stdout="1.2.3",
+            stderr="",
+            duration_seconds=0,
+        )
+
+    monkeypatch.setattr(
+        "orcheo.external_agents.runtime.execute_process",
+        fake_execute,
+    )
+
+    with pytest.raises(RuntimeVerificationError):
+        await manager._install_latest_locked(provider, None)
+
+
+@pytest.mark.asyncio
+async def test_install_latest_locked_raises_when_version_check_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    provider = StubInstallProvider()
+    manager = ExternalAgentRuntimeManager(
+        runtime_root=tmp_path,
+        providers={provider.name: provider},
+    )
+
+    async def fake_execute(
+        command: list[str], **kwargs: object
+    ) -> ProcessExecutionResult:
+        if command[0] == "stub-install":
+            staged_dir = Path(command[-1])
+            (staged_dir / "bin").mkdir(parents=True, exist_ok=True)
+            (staged_dir / "bin" / provider.executable_name).write_text(
+                "", encoding="utf-8"
+            )
+            return ProcessExecutionResult(
+                command=command,
+                exit_code=0,
+                stdout="",
+                stderr="",
+                duration_seconds=0,
+            )
+        return ProcessExecutionResult(
+            command=command,
+            exit_code=1,
+            stdout="",
+            stderr="failure",
+            duration_seconds=0,
+        )
+
+    monkeypatch.setattr(
+        "orcheo.external_agents.runtime.execute_process",
+        fake_execute,
+    )
+
+    with pytest.raises(RuntimeVerificationError):
+        await manager._install_latest_locked(provider, None)
+
+
+@pytest.mark.asyncio
+async def test_install_latest_locked_retains_previous_on_same_version(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    provider = StubInstallProvider()
+    manager = ExternalAgentRuntimeManager(
+        runtime_root=tmp_path,
+        providers={provider.name: provider},
+    )
+    base_manifest = RuntimeManifest(
+        provider=provider.name,
+        provider_root=tmp_path / provider.name,
+        current_version="1.0.0",
+        current_runtime_path=tmp_path / provider.name / "runtimes" / "1.0.0",
+        previous_version="0.9.0",
+        previous_runtime_path=tmp_path / provider.name / "runtimes" / "0.9.0",
+    )
+
+    async def fake_execute(
+        command: list[str], **kwargs: object
+    ) -> ProcessExecutionResult:
+        if command[0] == "stub-install":
+            staged_dir = Path(command[-1])
+            (staged_dir / "bin").mkdir(parents=True, exist_ok=True)
+            (staged_dir / "bin" / provider.executable_name).write_text(
+                "", encoding="utf-8"
+            )
+            return ProcessExecutionResult(
+                command=command,
+                exit_code=0,
+                stdout="",
+                stderr="",
+                duration_seconds=0,
+            )
+        return ProcessExecutionResult(
+            command=command,
+            exit_code=0,
+            stdout="1.0.0",
+            stderr="",
+            duration_seconds=0,
+        )
+
+    monkeypatch.setattr(
+        "orcheo.external_agents.runtime.execute_process",
+        fake_execute,
+    )
+
+    runtime, updated_manifest = await manager._install_latest_locked(
+        provider,
+        base_manifest,
+    )
+
+    assert updated_manifest.previous_version == "0.9.0"
+    assert runtime.version == "1.0.0"
+
+
+@pytest.mark.asyncio
+async def test_install_latest_locked_reuses_existing_final_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    provider = StubInstallProvider()
+    manager = ExternalAgentRuntimeManager(
+        runtime_root=tmp_path,
+        providers={provider.name: provider},
+    )
+    final_dir = tmp_path / provider.name / "runtimes" / "1.0.0"
+    (final_dir / "bin").mkdir(parents=True, exist_ok=True)
+    (final_dir / "bin" / provider.executable_name).write_text("", encoding="utf-8")
+
+    async def fake_execute(
+        command: list[str], **kwargs: object
+    ) -> ProcessExecutionResult:
+        if command[0] == "stub-install":
+            staged_dir = Path(command[-1])
+            (staged_dir / "bin").mkdir(parents=True, exist_ok=True)
+            (staged_dir / "bin" / provider.executable_name).write_text(
+                "", encoding="utf-8"
+            )
+            return ProcessExecutionResult(
+                command=command,
+                exit_code=0,
+                stdout="",
+                stderr="",
+                duration_seconds=0,
+            )
+        return ProcessExecutionResult(
+            command=command,
+            exit_code=0,
+            stdout="1.0.0",
+            stderr="",
+            duration_seconds=0,
+        )
+
+    monkeypatch.setattr("orcheo.external_agents.runtime.execute_process", fake_execute)
+
+    runtime, _ = await manager._install_latest_locked(provider, None)
+
+    assert runtime.install_dir == final_dir
+    assert runtime.executable_path == final_dir / "bin" / provider.executable_name
+
+
+def test_cleanup_superseded_runtimes_handles_missing_runtime_directory(
+    tmp_path: Path,
+) -> None:
+    provider = FakeProvider()
+    manager = ExternalAgentRuntimeManager(
+        runtime_root=tmp_path,
+        providers={provider.name: provider},
+    )
+    manifest = RuntimeManifest(
+        provider=provider.name,
+        provider_root=tmp_path / provider.name,
+        current_version="keep",
+        current_runtime_path=tmp_path / provider.name / "runtimes" / "keep",
+    )
+
+    manager._cleanup_superseded_runtimes(provider.name, manifest)
+
+
+def test_cleanup_superseded_runtimes_ignores_non_directory_children(
+    tmp_path: Path,
+) -> None:
+    provider = FakeProvider()
+    manager = ExternalAgentRuntimeManager(
+        runtime_root=tmp_path,
+        providers={provider.name: provider},
+    )
+    provider_dir = tmp_path / provider.name / "runtimes"
+    keep = provider_dir / "keep"
+    keep.mkdir(parents=True)
+    stray_file = provider_dir / "README.txt"
+    stray_file.write_text("keep me", encoding="utf-8")
+    manifest = RuntimeManifest(
+        provider=provider.name,
+        provider_root=tmp_path / provider.name,
+        current_version="keep",
+        current_runtime_path=keep,
+    )
+
+    manager._cleanup_superseded_runtimes(provider.name, manifest)
+
+    assert stray_file.exists()
+
+
+def test_cleanup_superseded_runtimes_retains_current_and_previous(
+    tmp_path: Path,
+) -> None:
+    provider = FakeProvider()
+    manager = ExternalAgentRuntimeManager(
+        runtime_root=tmp_path,
+        providers={provider.name: provider},
+    )
+    provider_dir = tmp_path / provider.name / "runtimes"
+    keep = provider_dir / "keep"
+    keep.mkdir(parents=True)
+    extra = provider_dir / "extra"
+    extra.mkdir()
+    manifest = RuntimeManifest(
+        provider=provider.name,
+        provider_root=tmp_path / provider.name,
+        current_version="keep",
+        current_runtime_path=keep,
+        previous_version="prev",
+        previous_runtime_path=keep,
+    )
+
+    manager._cleanup_superseded_runtimes(provider.name, manifest)
+    assert extra.exists() is False
+    assert keep.exists()
+
+
+def test_load_provider_environment_requires_dict(tmp_path: Path) -> None:
+    manager = ExternalAgentRuntimeManager(runtime_root=tmp_path)
+    env_path = provider_environment_path(tmp_path, "codex")
+    env_path.parent.mkdir(parents=True)
+    env_path.write_text("[]", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Persisted environment"):
+        manager._load_provider_environment("codex")
+
+
+class StubInstallProvider(NpmCliProvider):
+    name = "stub"
+    display_name = "Stub"
+    package_name = "@tests/stub"
+    executable_name = "stub"
+
+    def install_command(self, install_prefix: Path) -> list[str]:
+        return ["stub-install", str(install_prefix)]
+
+    def version_command(self, runtime: ResolvedRuntime) -> list[str]:
+        return ["stub-version"]
