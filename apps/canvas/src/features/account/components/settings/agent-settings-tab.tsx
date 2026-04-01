@@ -393,6 +393,9 @@ const AgentSettingsTab = () => {
             : provider.state === "ready"
               ? "Reconnect"
               : "Connect";
+        const showCodexDeviceAuthReminder =
+          provider.provider === "codex" &&
+          (provider.state !== "ready" || session !== null);
 
         return (
           <Card key={provider.provider} className="border-border/80">
@@ -424,6 +427,15 @@ const AgentSettingsTab = () => {
                 {provider.detail ??
                   "Canvas will manage the worker-side runtime and OAuth flow."}
               </p>
+              {showCodexDeviceAuthReminder && (
+                <p className="text-sm text-muted-foreground">
+                  Before signing in, make sure{" "}
+                  <span className="font-medium text-foreground">
+                    &quot;Enable device code authorization for Codex&quot;
+                  </span>{" "}
+                  is toggled on in ChatGPT Security Settings.
+                </p>
+              )}
 
               {session && (
                 <div className="rounded-md border bg-muted/30 p-3 text-sm">

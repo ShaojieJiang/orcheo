@@ -126,12 +126,56 @@ describe("AgentSettingsTab", () => {
     expect(
       screen.getByText(/OAuth happens on the execution worker/i),
     ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Enable device code authorization for Codex/i),
+    ).toBeInTheDocument();
     expect(screen.getByText("Local Agent Context Bridge")).toBeInTheDocument();
     expect(
       screen.getByText(
         /does not authenticate worker-side Claude Code or Codex workflow nodes/i,
       ),
     ).toBeInTheDocument();
+  });
+
+  it("hides the Codex device-auth reminder after the worker is ready", async () => {
+    vi.mocked(getExternalAgents).mockResolvedValue({
+      providers: [
+        mockProviders[0],
+        {
+          ...mockProviders[1],
+          state: "ready",
+          installed: true,
+          authenticated: true,
+          resolved_version: "0.30.0",
+          executable_path: "/data/codex/bin/codex",
+          detail: "Worker is ready to run Codex.",
+        },
+      ],
+    });
+    vi.mocked(refreshExternalAgents).mockResolvedValue({
+      providers: [
+        mockProviders[0],
+        {
+          ...mockProviders[1],
+          state: "ready",
+          installed: true,
+          authenticated: true,
+          resolved_version: "0.30.0",
+          executable_path: "/data/codex/bin/codex",
+          detail: "Worker is ready to run Codex.",
+        },
+      ],
+    });
+
+    render(<AgentSettingsTab />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Codex")).toBeInTheDocument();
+    });
+
+    expect(
+      screen.queryByText(/Enable device code authorization for Codex/i),
+    ).not.toBeInTheDocument();
   });
 
   it("starts the worker login flow from Canvas", async () => {
