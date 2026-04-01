@@ -378,6 +378,24 @@ def test_codex_provider_uses_device_auth_login() -> None:
     ]
 
 
+def test_codex_provider_build_environment_creates_codex_home(
+    tmp_path: Path,
+) -> None:
+    """Configured CODEX_HOME should exist before invoking the Codex CLI."""
+    provider = CodexProvider()
+    codex_home = tmp_path / "codex-home"
+
+    environ = provider.build_environment(
+        {
+            "CODEX_HOME": str(codex_home),
+            "OPENAI_API_KEY": "test-openai-key",
+        }
+    )
+
+    assert codex_home.is_dir()
+    assert environ["CODEX_API_KEY"] == "test-openai-key"
+
+
 def test_claude_provider_uses_setup_token_login() -> None:
     """Claude provider should use setup-token for worker login flows."""
     provider = ClaudeCodeProvider()
@@ -453,6 +471,15 @@ def test_provider_version_parsing_and_auth_probes(
     (auth_dir / "auth.json").write_text("{}", encoding="utf-8")
     cached_codex = codex.probe_auth(runtime, environ={})
     assert cached_codex.status == AuthStatus.AUTHENTICATED
+
+    custom_codex_home = tmp_path / "codex-home"
+    custom_codex_home.mkdir()
+    (custom_codex_home / "auth.json").write_text("{}", encoding="utf-8")
+    codex_with_explicit_home = codex.probe_auth(
+        runtime,
+        environ={"CODEX_HOME": str(custom_codex_home)},
+    )
+    assert codex_with_explicit_home.status == AuthStatus.AUTHENTICATED
 
     status_not_logged_in = Mock(
         return_value=subprocess.CompletedProcess(

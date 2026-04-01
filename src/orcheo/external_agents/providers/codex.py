@@ -15,6 +15,17 @@ class CodexProvider(NpmCliProvider):
     package_name = "@openai/codex"
     executable_name = "codex"
 
+    def _auth_file_candidates(
+        self,
+        environ: Mapping[str, str] | None = None,
+    ) -> tuple[Path, ...]:
+        """Return the auth.json locations Codex may use in this environment."""
+        merged = self.build_environment(environ)
+        codex_home = merged.get("CODEX_HOME", "").strip()
+        if codex_home:
+            return (Path(codex_home).expanduser() / "auth.json",)
+        return (Path("~/.codex/auth.json"),)
+
     def probe_auth(
         self,
         runtime: ResolvedRuntime,
@@ -35,7 +46,7 @@ class CodexProvider(NpmCliProvider):
             ],
             environ=environ,
             env_var_names=("CODEX_API_KEY", "OPENAI_API_KEY"),
-            auth_files=(Path("~/.codex/auth.json"),),
+            auth_files=self._auth_file_candidates(environ),
         )
 
     def build_environment(
@@ -44,6 +55,9 @@ class CodexProvider(NpmCliProvider):
     ) -> dict[str, str]:
         """Normalize OpenAI auth env vars for non-interactive Codex runs."""
         merged = super().build_environment(environ)
+        codex_home = merged.get("CODEX_HOME", "").strip()
+        if codex_home:
+            Path(codex_home).expanduser().mkdir(parents=True, exist_ok=True)
         if not merged.get("CODEX_API_KEY") and merged.get("OPENAI_API_KEY"):
             merged["CODEX_API_KEY"] = merged["OPENAI_API_KEY"]
         return merged

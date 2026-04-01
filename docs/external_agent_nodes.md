@@ -19,6 +19,9 @@ Orcheo manages provider runtimes under a persistent root with strong defaults:
 
 - Use `/data/agent-runtimes` when `/data` exists and is writable.
 - Otherwise use `~/.orcheo/agent-runtimes`.
+- In Docker deployments, keep the worker `HOME` on persistent storage so
+  provider login state such as `~/.claude*` and `$CODEX_HOME/auth.json`
+  survives container restarts.
 - Install the latest published provider CLI into a versioned provider-owned
   prefix.
 - Keep one current runtime and one previous known-good runtime for rollback and
