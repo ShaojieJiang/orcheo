@@ -142,3 +142,43 @@ def test_missing_external_agent_login_session_returns_not_found(
     response = client.get("/api/system/external-agents/sessions/missing-session")
 
     assert response.status_code == 404
+
+
+def test_submit_external_agent_login_input_updates_session(
+    monkeypatch: pytest.MonkeyPatch,
+    runtime_store: ExternalAgentRuntimeStore,
+) -> None:
+    """Submitting login input should queue it for the worker session."""
+    assert runtime_store._redis is None
+    monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
+
+    client = create_test_client()
+    start = client.post("/api/system/external-agents/claude_code/login")
+
+    assert start.status_code == 200
+    session_id = start.json()["session_id"]
+
+    response = client.post(
+        f"/api/system/external-agents/sessions/{session_id}/input",
+        json={"input_text": "ABCD-1234"},
+    )
+
+    assert response.status_code == 200
+    assert runtime_store.consume_login_input(session_id) == "ABCD-1234"
+
+
+def test_submit_external_agent_login_input_rejects_missing_session(
+    monkeypatch: pytest.MonkeyPatch,
+    runtime_store: ExternalAgentRuntimeStore,
+) -> None:
+    """Submitting login input to an unknown session returns 404."""
+    assert runtime_store._redis is None
+    monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
+
+    client = create_test_client()
+    response = client.post(
+        "/api/system/external-agents/sessions/missing-session/input",
+        json={"input_text": "ABCD-1234"},
+    )
+
+    assert response.status_code == 404

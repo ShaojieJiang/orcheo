@@ -35,7 +35,7 @@ class CodexProvider(NpmCliProvider):
             ],
             environ=environ,
             env_var_names=("CODEX_API_KEY", "OPENAI_API_KEY"),
-            auth_file=Path("~/.codex/auth.json"),
+            auth_files=(Path("~/.codex/auth.json"),),
         )
 
     def build_environment(

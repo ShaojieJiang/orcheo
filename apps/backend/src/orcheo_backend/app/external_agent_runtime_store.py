@@ -64,6 +64,7 @@ class ExternalAgentRuntimeStore:
         self._lock = RLock()
         self._provider_statuses: dict[str, ExternalAgentProviderStatus] = {}
         self._sessions: dict[str, ExternalAgentLoginSession] = {}
+        self._session_inputs: dict[str, str] = {}
         self._redis: redis.Redis | None = None
         try:
             self._redis = redis.from_url(redis_url, decode_responses=True)
@@ -111,11 +112,22 @@ class ExternalAgentRuntimeStore:
         self.save_provider_status(updated)
         return updated
 
+    def save_login_input(self, session_id: str, input_text: str) -> None:
+        """Persist one queued operator input for a login session."""
+        self._write_session_input(session_id, input_text)
+
+    def consume_login_input(self, session_id: str) -> str | None:
+        """Return and clear the next queued operator input for a login session."""
+        return self._pop_session_input(session_id)
+
     def _provider_key(self, provider_name: ExternalAgentProviderName) -> str:
         return f"orcheo:external_agents:provider:{provider_name.value}"
 
     def _session_key(self, session_id: str) -> str:
         return f"orcheo:external_agents:session:{session_id}"
+
+    def _session_input_key(self, session_id: str) -> str:
+        return f"orcheo:external_agents:session-input:{session_id}"
 
     def _read_provider_payload(
         self,
@@ -175,6 +187,30 @@ class ExternalAgentRuntimeStore:
                 pass
         with self._lock:
             self._sessions[session.session_id] = session.model_copy(deep=True)
+
+    def _write_session_input(self, session_id: str, input_text: str) -> None:
+        if self._redis is not None:
+            try:
+                self._redis.set(
+                    self._session_input_key(session_id),
+                    input_text,
+                    ex=SESSION_TTL_SECONDS,
+                )
+            except redis.RedisError:
+                pass
+        with self._lock:
+            self._session_inputs[session_id] = input_text
+
+    def _pop_session_input(self, session_id: str) -> str | None:
+        if self._redis is not None:
+            try:
+                payload = self._redis.getdel(self._session_input_key(session_id))
+                if payload is not None:
+                    return cast(str, payload)
+            except redis.RedisError:
+                pass
+        with self._lock:
+            return self._session_inputs.pop(session_id, None)
 
 
 def list_active_login_sessions(

@@ -6,6 +6,7 @@ import {
   getSystemInfo,
   refreshExternalAgents,
   startExternalAgentLogin,
+  submitExternalAgentLoginInput,
 } from "./api";
 
 describe("executeNode", () => {
@@ -256,6 +257,42 @@ describe("executeNode", () => {
     expect(global.fetch).toHaveBeenCalledWith(
       expect.stringContaining("/api/system/external-agents/claude_code/login"),
       expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("should submit input to an external agent login session", async () => {
+    const mockResponse = {
+      session_id: "session-1",
+      provider: "claude_code",
+      display_name: "Claude Code",
+      state: "awaiting_oauth",
+      created_at: "2026-03-31T10:00:00Z",
+      updated_at: "2026-03-31T10:00:00Z",
+      completed_at: null,
+      auth_url: "https://example.com",
+      device_code: null,
+      detail: "Auth code submitted to the worker. Waiting for completion.",
+      recent_output: null,
+      resolved_version: "2.1.89",
+      executable_path: "/data/claude/bin/claude",
+    };
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: true,
+      json: async () => mockResponse,
+    });
+
+    const result = await submitExternalAgentLoginInput("session-1", {
+      input_text: "ABCD-1234",
+    });
+    expect(result.session_id).toBe("session-1");
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "/api/system/external-agents/sessions/session-1/input",
+      ),
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ input_text: "ABCD-1234" }),
+      }),
     );
   });
 

@@ -110,6 +110,12 @@ class ExternalAgentLoginSession(BaseModel):
     executable_path: str | None = None
 
 
+class ExternalAgentLoginInputRequest(BaseModel):
+    """Operator-provided input forwarded to a worker login session."""
+
+    input_text: str
+
+
 class ExternalAgentsResponse(BaseModel):
     """Combined worker-scoped status for all external agent providers."""
 

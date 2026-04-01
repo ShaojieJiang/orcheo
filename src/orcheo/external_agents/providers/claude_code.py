@@ -1,9 +1,10 @@
 """Claude Code provider adapter."""
 
 from __future__ import annotations
+import json
+import subprocess
 from collections.abc import Mapping
-from pathlib import Path
-from orcheo.external_agents.models import AuthProbeResult, ResolvedRuntime
+from orcheo.external_agents.models import AuthProbeResult, AuthStatus, ResolvedRuntime
 from orcheo.external_agents.providers.base import NpmCliProvider
 
 
@@ -22,24 +23,57 @@ class ClaudeCodeProvider(NpmCliProvider):
         environ: Mapping[str, str] | None = None,
     ) -> AuthProbeResult:
         """Probe for interactive Claude login or provider-native auth env vars."""
-        del runtime
-        return self._authenticated_if_env_present(
-            message=(
-                "Claude Code is installed but not authenticated on this worker. "
-                "Complete the provider login flow on the worker host and rerun the "
-                "workflow."
-            ),
-            commands=[
-                f"{self.executable_name}",
-                "export ANTHROPIC_API_KEY=<api-key>",
-            ],
+        probe = self._authenticated_if_env_present(
+            message="",
+            commands=[],
             environ=environ,
             env_var_names=(
                 "ANTHROPIC_API_KEY",
                 "CLAUDE_CODE_USE_BEDROCK",
                 "CLAUDE_CODE_USE_VERTEX",
             ),
-            auth_file=Path("~/.claude.json"),
+        )
+        if probe.authenticated:
+            return probe
+
+        message = (
+            "Claude Code is installed but not authenticated on this worker. "
+            "Complete the provider login flow on the worker host and rerun the "
+            "workflow."
+        )
+        commands = [
+            f"{self.executable_name}",
+            "export ANTHROPIC_API_KEY=<api-key>",
+        ]
+
+        try:
+            result = subprocess.run(
+                [str(runtime.executable_path), "auth", "status"],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=15,
+                env=self.build_environment(environ),
+            )
+        except (FileNotFoundError, OSError, subprocess.SubprocessError):
+            return AuthProbeResult(
+                status=AuthStatus.SETUP_NEEDED,
+                message=message,
+                commands=commands,
+            )
+
+        if result.returncode == 0:
+            try:
+                payload = json.loads(result.stdout or "{}")
+            except json.JSONDecodeError:
+                payload = {}
+            if payload.get("loggedIn") is True:
+                return AuthProbeResult(status=AuthStatus.AUTHENTICATED)
+
+        return AuthProbeResult(
+            status=AuthStatus.SETUP_NEEDED,
+            message=message,
+            commands=commands,
         )
 
     def build_command(

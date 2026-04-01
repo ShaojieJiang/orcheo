@@ -12,6 +12,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from orcheo.external_agents import ExternalAgentRuntimeManager, RuntimeInstallError
+from orcheo.external_agents.models import ResolvedRuntime
 from orcheo_backend.app.dependencies import get_external_agent_runtime_store
 from orcheo_backend.app.external_agent_runtime_store import (
     default_external_agent_status,
@@ -87,11 +88,50 @@ def _terminate_process_group(process: subprocess.Popen[bytes]) -> None:
         process.wait(timeout=2)
 
 
+def _drain_login_output(
+    master_fd: int,
+    *,
+    output: str,
+    auth_url: str | None,
+    device_code: str | None,
+    on_output: Callable[[str, str | None, str | None], None],
+) -> tuple[str, str | None, str | None]:
+    """Read and normalize any available PTY output for the login process."""
+    while True:
+        try:
+            chunk = os.read(master_fd, 4096)
+        except BlockingIOError:
+            break
+        except OSError:
+            chunk = b""
+        if not chunk:
+            break
+        cleaned = _strip_ansi(chunk.decode("utf-8", errors="replace"))
+        output += cleaned
+        auth_url = auth_url or _extract_auth_url(output)
+        device_code = device_code or _extract_device_code(output)
+        on_output(output, auth_url, device_code)
+    return output, auth_url, device_code
+
+
+def _forward_login_input(
+    master_fd: int,
+    consume_input: Callable[[], str | None] | None,
+) -> None:
+    """Send any queued operator input back to the interactive login PTY."""
+    if consume_input is None:
+        return
+    queued_input = consume_input()
+    if queued_input:
+        os.write(master_fd, f"{queued_input}\n".encode())
+
+
 def _run_login_command(
     command: list[str],
     *,
     env: Mapping[str, str],
     on_output: Callable[[str, str | None, str | None], None],
+    consume_input: Callable[[], str | None] | None = None,
     timeout_seconds: int = LOGIN_TIMEOUT_SECONDS,
 ) -> LoginCommandResult:
     """Run an interactive provider login command inside a PTY."""
@@ -118,20 +158,14 @@ def _run_login_command(
 
         while True:
             selector.select(timeout=0.5)
-            while True:
-                try:
-                    chunk = os.read(master_fd, 4096)
-                except BlockingIOError:
-                    break
-                except OSError:
-                    chunk = b""
-                if not chunk:
-                    break
-                cleaned = _strip_ansi(chunk.decode("utf-8", errors="replace"))
-                output += cleaned
-                auth_url = auth_url or _extract_auth_url(output)
-                device_code = device_code or _extract_device_code(output)
-                on_output(output, auth_url, device_code)
+            output, auth_url, device_code = _drain_login_output(
+                master_fd,
+                output=output,
+                auth_url=auth_url,
+                device_code=device_code,
+                on_output=on_output,
+            )
+            _forward_login_input(master_fd, consume_input)
 
             if process.poll() is not None:
                 break
@@ -197,6 +231,78 @@ def _initial_login_detail(provider_name: ExternalAgentProviderName) -> str:
     return "Starting the provider OAuth flow on the worker."
 
 
+def _browser_login_detail(provider_name: ExternalAgentProviderName) -> str:
+    """Return provider-specific guidance while a browser login is in progress."""
+    if provider_name == ExternalAgentProviderName.CODEX:
+        return (
+            "Open the device-auth page, enter the one-time device code, and finish "
+            "sign-in. If ChatGPT says device authorization is disabled, enable it "
+            "in ChatGPT Security Settings and retry."
+        )
+    if provider_name == ExternalAgentProviderName.CLAUDE_CODE:
+        return (
+            "Complete the browser sign-in. If Claude shows a one-time code at the "
+            "end, paste it back into Canvas to finish worker auth."
+        )
+    return "Complete the browser sign-in to finish connecting the worker."
+
+
+def _last_auth_ok_at(manifest: object | None) -> datetime | None:
+    """Return the stored last-auth timestamp when a manifest is present."""
+    return getattr(manifest, "last_auth_ok_at", None)
+
+
+def _save_ready_provider_status(
+    runtime_store: object,
+    provider_id: ExternalAgentProviderName,
+    *,
+    runtime_version: str,
+    executable_path: str,
+    checked_at: datetime,
+    last_auth_ok_at: datetime | None,
+) -> None:
+    """Persist a ready/authenticated provider status."""
+    runtime_store.save_provider_status(  # type: ignore[attr-defined]
+        _provider_status(
+            provider_id,
+            state=ExternalAgentProviderState.READY,
+            authenticated=True,
+            installed=True,
+            detail="Ready on the worker.",
+            resolved_version=runtime_version,
+            executable_path=executable_path,
+            checked_at=checked_at,
+            last_auth_ok_at=last_auth_ok_at,
+        )
+    )
+
+
+def _save_needs_login_provider_status(
+    runtime_store: object,
+    provider_id: ExternalAgentProviderName,
+    *,
+    detail: str,
+    runtime_version: str,
+    executable_path: str,
+    checked_at: datetime,
+    last_auth_ok_at: datetime | None,
+) -> None:
+    """Persist a worker status showing provider login is still required."""
+    runtime_store.save_provider_status(  # type: ignore[attr-defined]
+        _provider_status(
+            provider_id,
+            state=ExternalAgentProviderState.NEEDS_LOGIN,
+            authenticated=False,
+            installed=True,
+            detail=detail,
+            resolved_version=runtime_version,
+            executable_path=executable_path,
+            checked_at=checked_at,
+            last_auth_ok_at=last_auth_ok_at,
+        )
+    )
+
+
 async def refresh_external_agent_status_async(provider_name: str) -> dict[str, str]:
     """Refresh one provider status without forcing a runtime install."""
     provider_id = ExternalAgentProviderName(provider_name)
@@ -223,35 +329,24 @@ async def refresh_external_agent_status_async(provider_name: str) -> dict[str, s
         probe = provider.probe_auth(runtime, environ=manager.environ)
         if probe.authenticated:
             manifest = manager.mark_auth_success(provider_name)
-            runtime_store.save_provider_status(
-                _provider_status(
-                    provider_id,
-                    state=ExternalAgentProviderState.READY,
-                    authenticated=True,
-                    installed=True,
-                    detail="Ready on the worker.",
-                    resolved_version=runtime.version,
-                    executable_path=str(runtime.executable_path),
-                    checked_at=checked_at,
-                    last_auth_ok_at=manifest.last_auth_ok_at,
-                )
+            _save_ready_provider_status(
+                runtime_store,
+                provider_id,
+                runtime_version=runtime.version,
+                executable_path=str(runtime.executable_path),
+                checked_at=checked_at,
+                last_auth_ok_at=manifest.last_auth_ok_at,
             )
             return {"status": "ready"}
 
-        runtime_store.save_provider_status(
-            _provider_status(
-                provider_id,
-                state=ExternalAgentProviderState.NEEDS_LOGIN,
-                authenticated=False,
-                installed=True,
-                detail=probe.message or "OAuth login is required on the worker.",
-                resolved_version=runtime.version,
-                executable_path=str(runtime.executable_path),
-                checked_at=checked_at,
-                last_auth_ok_at=manifest.last_auth_ok_at
-                if manifest is not None
-                else None,
-            )
+        _save_needs_login_provider_status(
+            runtime_store,
+            provider_id,
+            detail=probe.message or "OAuth login is required on the worker.",
+            runtime_version=runtime.version,
+            executable_path=str(runtime.executable_path),
+            checked_at=checked_at,
+            last_auth_ok_at=_last_auth_ok_at(manifest),
         )
         return {"status": "needs_login"}
     except Exception as exc:
@@ -268,7 +363,7 @@ async def refresh_external_agent_status_async(provider_name: str) -> dict[str, s
         return {"status": "error", "detail": str(exc)}
 
 
-async def start_external_agent_login_async(
+async def start_external_agent_login_async(  # noqa: C901, PLR0915
     provider_name: str,
     session_id: str,
 ) -> dict[str, str]:
@@ -309,6 +404,33 @@ async def start_external_agent_login_async(
         runtime_store.save_login_session(updated)
         return updated
 
+    def save_authenticated_session(
+        current_runtime: ResolvedRuntime,
+        detail: str,
+    ) -> None:
+        """Persist a completed authenticated worker login session."""
+        save_session(
+            ExternalAgentLoginSessionState.AUTHENTICATED,
+            detail=detail,
+            resolved_version=current_runtime.version,
+            executable_path=str(current_runtime.executable_path),
+            completed=True,
+        )
+
+    def save_provider_ready(
+        current_runtime: ResolvedRuntime,
+        manifest_last_auth_ok_at: datetime | None,
+    ) -> None:
+        """Persist a ready provider state for the current runtime."""
+        _save_ready_provider_status(
+            runtime_store,
+            provider_id,
+            runtime_version=current_runtime.version,
+            executable_path=str(current_runtime.executable_path),
+            checked_at=_utcnow(),
+            last_auth_ok_at=manifest_last_auth_ok_at,
+        )
+
     try:
         runtime, manifest = manager.inspect_runtime(provider_name)
         if runtime is None:
@@ -334,26 +456,8 @@ async def start_external_agent_login_async(
         probe = provider.probe_auth(runtime, environ=manager.environ)
         if probe.authenticated:
             manifest = manager.mark_auth_success(provider_name)
-            save_session(
-                ExternalAgentLoginSessionState.AUTHENTICATED,
-                detail="Already authenticated on the worker.",
-                resolved_version=runtime.version,
-                executable_path=str(runtime.executable_path),
-                completed=True,
-            )
-            runtime_store.save_provider_status(
-                _provider_status(
-                    provider_id,
-                    state=ExternalAgentProviderState.READY,
-                    authenticated=True,
-                    installed=True,
-                    detail="Ready on the worker.",
-                    resolved_version=runtime.version,
-                    executable_path=str(runtime.executable_path),
-                    checked_at=_utcnow(),
-                    last_auth_ok_at=manifest.last_auth_ok_at,
-                )
-            )
+            save_authenticated_session(runtime, "Already authenticated on the worker.")
+            save_provider_ready(runtime, manifest.last_auth_ok_at)
             return {"status": "ready"}
 
         save_session(
@@ -384,13 +488,7 @@ async def start_external_agent_login_async(
             auth_url: str | None,
             device_code: str | None,
         ) -> None:
-            detail = "Complete the browser sign-in to finish connecting the worker."
-            if provider_id == ExternalAgentProviderName.CODEX:
-                detail = (
-                    "Open the device-auth page, enter the one-time device code, and "
-                    "finish sign-in. If ChatGPT says device authorization is disabled, "
-                    "enable it in ChatGPT Security Settings and retry."
-                )
+            detail = _browser_login_detail(provider_id)
             state = (
                 ExternalAgentLoginSessionState.AWAITING_OAUTH
                 if auth_url or device_code
@@ -410,6 +508,7 @@ async def start_external_agent_login_async(
             provider.oauth_login_command(runtime),
             env=provider.build_environment(manager.environ),
             on_output=on_output,
+            consume_input=lambda: runtime_store.consume_login_input(session_id),
         )
         probe = provider.probe_auth(runtime, environ=manager.environ)
         if probe.authenticated:
@@ -424,19 +523,7 @@ async def start_external_agent_login_async(
                 executable_path=str(runtime.executable_path),
                 completed=True,
             )
-            runtime_store.save_provider_status(
-                _provider_status(
-                    provider_id,
-                    state=ExternalAgentProviderState.READY,
-                    authenticated=True,
-                    installed=True,
-                    detail="Ready on the worker.",
-                    resolved_version=runtime.version,
-                    executable_path=str(runtime.executable_path),
-                    checked_at=_utcnow(),
-                    last_auth_ok_at=manifest.last_auth_ok_at,
-                )
-            )
+            save_provider_ready(runtime, manifest.last_auth_ok_at)
             return {"status": "authenticated"}
 
         session_state = (
@@ -459,20 +546,14 @@ async def start_external_agent_login_async(
             executable_path=str(runtime.executable_path),
             completed=True,
         )
-        runtime_store.save_provider_status(
-            _provider_status(
-                provider_id,
-                state=ExternalAgentProviderState.NEEDS_LOGIN,
-                authenticated=False,
-                installed=True,
-                detail=detail,
-                resolved_version=runtime.version,
-                executable_path=str(runtime.executable_path),
-                checked_at=_utcnow(),
-                last_auth_ok_at=manifest.last_auth_ok_at
-                if manifest is not None
-                else None,
-            )
+        _save_needs_login_provider_status(
+            runtime_store,
+            provider_id,
+            detail=detail,
+            runtime_version=runtime.version,
+            executable_path=str(runtime.executable_path),
+            checked_at=_utcnow(),
+            last_auth_ok_at=_last_auth_ok_at(manifest),
         )
         return {"status": session_state.value}
     except RuntimeInstallError as exc:

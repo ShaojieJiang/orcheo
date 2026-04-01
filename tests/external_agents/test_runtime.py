@@ -8,6 +8,7 @@ import time
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from unittest.mock import Mock
 import pytest
 from orcheo.external_agents.manifest import RuntimeManifestStore, provider_lock
 from orcheo.external_agents.models import (
@@ -435,5 +436,32 @@ def test_provider_version_parsing_and_auth_probes(
     (auth_dir / "auth.json").write_text("{}", encoding="utf-8")
     cached_codex = codex.probe_auth(runtime, environ={})
     assert cached_codex.status == AuthStatus.AUTHENTICATED
+
+    status_not_logged_in = Mock(
+        return_value=subprocess.CompletedProcess(
+            args=["claude", "auth", "status"],
+            returncode=0,
+            stdout='{"loggedIn": false, "authMethod": "none"}',
+            stderr="",
+        )
+    )
+    monkeypatch.setattr(subprocess, "run", status_not_logged_in)
+    stale_claude_metadata = tmp_path / ".claude.json"
+    stale_claude_metadata.write_text("{}", encoding="utf-8")
+    cached_claude = claude.probe_auth(runtime, environ={})
+    assert cached_claude.status == AuthStatus.SETUP_NEEDED
+
     env_claude = claude.probe_auth(runtime, environ={"ANTHROPIC_API_KEY": "x"})
     assert env_claude.status == AuthStatus.AUTHENTICATED
+
+    status_logged_in = Mock(
+        return_value=subprocess.CompletedProcess(
+            args=["claude", "auth", "status"],
+            returncode=0,
+            stdout='{"loggedIn": true, "authMethod": "oauth"}',
+            stderr="",
+        )
+    )
+    monkeypatch.setattr(subprocess, "run", status_logged_in)
+    oauth_claude = claude.probe_auth(runtime, environ={})
+    assert oauth_claude.status == AuthStatus.AUTHENTICATED

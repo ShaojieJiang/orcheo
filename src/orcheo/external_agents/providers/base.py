@@ -112,14 +112,15 @@ class NpmCliProvider:
         commands: list[str],
         environ: Mapping[str, str] | None,
         env_var_names: tuple[str, ...],
-        auth_file: Path | None = None,
+        auth_files: tuple[Path, ...] = (),
     ) -> AuthProbeResult:
         """Return a normalized auth probe from env vars and cached login files."""
         merged = self.build_environment(environ)
         if any(merged.get(name, "").strip() for name in env_var_names):
             return AuthProbeResult(status=AuthStatus.AUTHENTICATED)
-        if auth_file is not None and auth_file.expanduser().exists():
-            return AuthProbeResult(status=AuthStatus.AUTHENTICATED)
+        for auth_file in auth_files:
+            if auth_file.expanduser().exists():
+                return AuthProbeResult(status=AuthStatus.AUTHENTICATED)
         return AuthProbeResult(
             status=AuthStatus.SETUP_NEEDED,
             message=message,

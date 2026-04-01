@@ -80,6 +80,10 @@ export interface ExternalAgentLoginSession {
   executable_path: string | null;
 }
 
+export interface ExternalAgentLoginInputRequest {
+  input_text: string;
+}
+
 export interface ExternalAgentsResponse {
   providers: ExternalAgentProviderStatus[];
 }
@@ -199,6 +203,21 @@ export async function getExternalAgentLoginSession(
   return requestSystemJson<ExternalAgentLoginSession>(
     `/api/system/external-agents/sessions/${sessionId}`,
     { method: "GET" },
+    baseUrl,
+  );
+}
+
+export async function submitExternalAgentLoginInput(
+  sessionId: string,
+  payload: ExternalAgentLoginInputRequest,
+  baseUrl?: string,
+): Promise<ExternalAgentLoginSession> {
+  return requestSystemJson<ExternalAgentLoginSession>(
+    `/api/system/external-agents/sessions/${sessionId}/input`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
     baseUrl,
   );
 }

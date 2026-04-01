@@ -12,11 +12,13 @@ import {
   CardTitle,
 } from "@/design-system/ui/card";
 import { Separator } from "@/design-system/ui/separator";
+import { Input } from "@/design-system/ui/input";
 import {
   getExternalAgentLoginSession,
   getExternalAgents,
   refreshExternalAgents,
   startExternalAgentLogin,
+  submitExternalAgentLoginInput,
   type ExternalAgentLoginSession,
   type ExternalAgentLoginSessionState,
   type ExternalAgentProviderName,
@@ -143,6 +145,11 @@ const AgentSettingsTab = () => {
   const [isRefreshingStatuses, setIsRefreshingStatuses] = useState(false);
   const [pendingProvider, setPendingProvider] =
     useState<ExternalAgentProviderName | null>(null);
+  const [pendingInputProvider, setPendingInputProvider] =
+    useState<ExternalAgentProviderName | null>(null);
+  const [sessionInputs, setSessionInputs] = useState<
+    Partial<Record<ExternalAgentProviderName, string>>
+  >({});
   const [statusError, setStatusError] = useState<string | null>(null);
   const { copiedValue, copy } = useCopyFeedback();
 
@@ -321,6 +328,40 @@ const AgentSettingsTab = () => {
     [loadProviderStatuses],
   );
 
+  const handleSubmitSessionInput = useCallback(
+    async (provider: ExternalAgentProviderName, sessionId: string) => {
+      const inputText = sessionInputs[provider]?.trim();
+      if (!inputText) {
+        setStatusError("Enter the authentication code before submitting it.");
+        return;
+      }
+      setPendingInputProvider(provider);
+      try {
+        const session = await submitExternalAgentLoginInput(sessionId, {
+          input_text: inputText,
+        });
+        setLoginSessions((current) => ({
+          ...current,
+          [provider]: session,
+        }));
+        setSessionInputs((current) => ({
+          ...current,
+          [provider]: "",
+        }));
+        setStatusError(null);
+      } catch (error) {
+        setStatusError(
+          error instanceof Error
+            ? error.message
+            : "Failed to submit worker login input.",
+        );
+      } finally {
+        setPendingInputProvider(null);
+      }
+    },
+    [sessionInputs],
+  );
+
   const providerCards = useMemo(
     () =>
       providerStatuses.map((provider) => {
@@ -430,6 +471,47 @@ const AgentSettingsTab = () => {
                       {session.recent_output}
                     </pre>
                   )}
+                  {provider.provider === "claude_code" &&
+                    !isTerminalSessionState(session.state) && (
+                      <div className="mt-3 space-y-2">
+                        <p className="text-xs text-muted-foreground">
+                          If Claude finishes sign-in by showing a one-time code,
+                          paste it here to send it back to the worker CLI.
+                        </p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Input
+                            value={sessionInputs[provider.provider] ?? ""}
+                            onChange={(event) => {
+                              const value = event.target.value;
+                              setSessionInputs((current) => ({
+                                ...current,
+                                [provider.provider]: value,
+                              }));
+                            }}
+                            placeholder="Paste Claude auth code"
+                            className="max-w-sm bg-background"
+                          />
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              void handleSubmitSessionInput(
+                                provider.provider,
+                                session.session_id,
+                              );
+                            }}
+                            disabled={
+                              pendingInputProvider === provider.provider
+                            }
+                          >
+                            {pendingInputProvider === provider.provider && (
+                              <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                            )}
+                            Submit code
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                 </div>
               )}
 
@@ -457,9 +539,12 @@ const AgentSettingsTab = () => {
       copiedValue,
       copy,
       handleConnect,
+      handleSubmitSessionInput,
       loginSessions,
       pendingProvider,
+      pendingInputProvider,
       providerStatuses,
+      sessionInputs,
     ],
   );
 
@@ -480,7 +565,7 @@ const AgentSettingsTab = () => {
               <CardDescription>
                 Connect Claude Code and Codex once per worker from Canvas. OAuth
                 happens on the execution worker, not on individual workflow
-                nodes.
+                nodes or the local browser-aware bridge below.
               </CardDescription>
             </div>
             <Button
@@ -516,7 +601,8 @@ const AgentSettingsTab = () => {
           <CardTitle>Local Agent Context Bridge</CardTitle>
           <CardDescription>
             Use the browser-aware CLI bridge when you want a local terminal
-            agent to understand the workflow currently open in Canvas.
+            agent to understand the workflow currently open in Canvas. This does
+            not authenticate worker-side Claude Code or Codex workflow nodes.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -524,7 +610,7 @@ const AgentSettingsTab = () => {
             <h3 className="text-sm font-medium">Quick start</h3>
             <ol className="list-decimal list-inside space-y-2 text-sm text-muted-foreground">
               <li>
-                Authenticate the CLI:
+                Authenticate the local Orcheo CLI:
                 <div className="mt-1 flex items-center gap-2">
                   <code className="rounded bg-muted px-2 py-1 text-xs">
                     orcheo auth login
@@ -570,7 +656,7 @@ const AgentSettingsTab = () => {
             <h3 className="text-sm font-medium">Bridge status</h3>
             <div className="flex items-center gap-2">
               <Badge variant={serverRunning ? "default" : "secondary"}>
-                {serverRunning ? "Connected" : "Not connected"}
+                {serverRunning ? "Bridge connected" : "Bridge offline"}
               </Badge>
               {serverRunning && sessionCount !== null && (
                 <span className="text-sm text-muted-foreground">

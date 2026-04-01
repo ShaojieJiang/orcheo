@@ -8,6 +8,7 @@ import {
   getExternalAgents,
   refreshExternalAgents,
   startExternalAgentLogin,
+  submitExternalAgentLoginInput,
 } from "@/lib/api";
 
 vi.mock("@/lib/api", () => ({
@@ -15,6 +16,7 @@ vi.mock("@/lib/api", () => ({
   refreshExternalAgents: vi.fn(),
   startExternalAgentLogin: vi.fn(),
   getExternalAgentLoginSession: vi.fn(),
+  submitExternalAgentLoginInput: vi.fn(),
 }));
 
 const mockProviders = [
@@ -87,6 +89,21 @@ describe("AgentSettingsTab", () => {
       resolved_version: "0.30.0",
       executable_path: "/data/codex/bin/codex",
     });
+    vi.mocked(submitExternalAgentLoginInput).mockResolvedValue({
+      session_id: "session-claude",
+      provider: "claude_code",
+      display_name: "Claude Code",
+      state: "awaiting_oauth",
+      created_at: "2026-03-31T10:00:00Z",
+      updated_at: "2026-03-31T10:00:02Z",
+      completed_at: null,
+      auth_url: "https://claude.ai",
+      device_code: null,
+      detail: "Auth code submitted to the worker. Waiting for completion.",
+      recent_output: "Paste the code back into Claude Code",
+      resolved_version: "2.1.89",
+      executable_path: "/data/claude/bin/claude",
+    });
     global.fetch = vi.fn().mockResolvedValue({
       json: async () => [],
     } as Response);
@@ -110,6 +127,11 @@ describe("AgentSettingsTab", () => {
       screen.getByText(/OAuth happens on the execution worker/i),
     ).toBeInTheDocument();
     expect(screen.getByText("Local Agent Context Bridge")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /does not authenticate worker-side Claude Code or Codex workflow nodes/i,
+      ),
+    ).toBeInTheDocument();
   });
 
   it("starts the worker login flow from Canvas", async () => {
@@ -128,6 +150,58 @@ describe("AgentSettingsTab", () => {
 
     await waitFor(() => {
       expect(startExternalAgentLogin).toHaveBeenCalledWith("codex");
+    });
+  });
+
+  it("submits a Claude auth code back to the worker session", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getExternalAgents).mockResolvedValue({
+      providers: [
+        {
+          ...mockProviders[0],
+          active_session_id: "session-claude",
+        },
+        mockProviders[1],
+      ],
+    });
+    vi.mocked(refreshExternalAgents).mockResolvedValue({
+      providers: [
+        {
+          ...mockProviders[0],
+          active_session_id: "session-claude",
+        },
+        mockProviders[1],
+      ],
+    });
+    vi.mocked(getExternalAgentLoginSession).mockResolvedValue({
+      session_id: "session-claude",
+      provider: "claude_code",
+      display_name: "Claude Code",
+      state: "awaiting_oauth",
+      created_at: "2026-03-31T10:00:00Z",
+      updated_at: "2026-03-31T10:00:02Z",
+      completed_at: null,
+      auth_url: "https://claude.ai",
+      device_code: null,
+      detail: "Complete the browser sign-in.",
+      recent_output: "Paste the code back into Claude Code",
+      resolved_version: "2.1.89",
+      executable_path: "/data/claude/bin/claude",
+    });
+
+    render(<AgentSettingsTab />);
+
+    const input = await screen.findByPlaceholderText(/paste claude auth code/i);
+    await user.type(input, "ABCD-1234");
+    await user.click(screen.getByRole("button", { name: /submit code/i }));
+
+    await waitFor(() => {
+      expect(submitExternalAgentLoginInput).toHaveBeenCalledWith(
+        "session-claude",
+        {
+          input_text: "ABCD-1234",
+        },
+      );
     });
   });
 });

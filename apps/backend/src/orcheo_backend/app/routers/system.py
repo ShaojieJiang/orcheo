@@ -10,6 +10,7 @@ from orcheo_backend.app.external_agent_runtime_store import (
 )
 from orcheo_backend.app.plugin_inventory import list_runtime_plugins
 from orcheo_backend.app.schemas.system import (
+    ExternalAgentLoginInputRequest,
     ExternalAgentLoginSession,
     ExternalAgentLoginSessionState,
     ExternalAgentProviderName,
@@ -144,6 +145,52 @@ def get_external_agent_login_session(
             detail=f"External agent login session '{session_id}' was not found.",
         )
     return session
+
+
+@router.post(
+    "/system/external-agents/sessions/{session_id}/input",
+    response_model=ExternalAgentLoginSession,
+)
+def submit_external_agent_login_input(
+    session_id: str,
+    payload: ExternalAgentLoginInputRequest,
+    runtime_store: ExternalAgentRuntimeStoreDep,
+) -> ExternalAgentLoginSession:
+    """Queue operator input for a worker-side external agent login session."""
+    session = runtime_store.get_login_session(session_id)
+    if session is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"External agent login session '{session_id}' was not found.",
+        )
+    if session.state in {
+        ExternalAgentLoginSessionState.AUTHENTICATED,
+        ExternalAgentLoginSessionState.FAILED,
+        ExternalAgentLoginSessionState.TIMED_OUT,
+    }:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"External agent login session '{session_id}' is already complete."
+            ),
+        )
+
+    input_text = payload.input_text.strip()
+    if not input_text:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Login input must not be empty.",
+        )
+
+    runtime_store.save_login_input(session_id, input_text)
+    updated = session.model_copy(
+        update={
+            "detail": "Auth code submitted to the worker. Waiting for completion.",
+            "updated_at": _utcnow(),
+        }
+    )
+    runtime_store.save_login_session(updated)
+    return updated
 
 
 __all__ = ["public_router", "router"]
