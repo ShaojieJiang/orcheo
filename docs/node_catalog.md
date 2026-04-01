@@ -1,6 +1,6 @@
 # Built-in Node Catalog
 
-Orcheo currently ships with **95 built-in nodes** across **14 categories**.
+Orcheo currently ships with **97 built-in nodes** across **14 categories**.
 
 This catalog is sourced from runtime node registry metadata. Run `orcheo node list` to inspect the nodes available in your environment, including custom registrations.
 
@@ -9,7 +9,7 @@ This catalog is sourced from runtime node registry metadata. Run `orcheo node li
 | Category | Node Count |
 |---|---:|
 | Agentensor (`agentensor`) | 1 |
-| AI (`ai`) | 2 |
+| AI (`ai`) | 4 |
 | Base (`base`) | 1 |
 | Communication (`communication`) | 2 |
 | Conversational Search (`conversational_search`) | 46 |
@@ -34,6 +34,8 @@ This catalog is sourced from runtime node registry metadata. Run `orcheo node li
 | Node | Description |
 |---|---|
 | **AgentNode** | Execute an AI agent with tools |
+| **ClaudeCodeNode** | Execute Claude Code as a non-interactive coding-agent step. |
+| **CodexNode** | Execute Codex as a non-interactive coding-agent step. |
 | **LLMNode** | Execute a text-only LLM call |
 
 ## Base Nodes

@@ -3,8 +3,9 @@
 from __future__ import annotations
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable, Mapping
-from contextlib import nullcontext
+import os
+from collections.abc import Awaitable, Callable, Iterator, Mapping
+from contextlib import contextmanager, nullcontext
 from typing import Any, cast
 from uuid import UUID, uuid4
 from chatkit.errors import CustomStreamError
@@ -27,12 +28,43 @@ from orcheo_backend.app.chatkit.model_selection import (
     CHATKIT_MODEL_CONFIG_KEY,
     apply_chatkit_selected_model,
 )
-from orcheo_backend.app.dependencies import get_history_store
+from orcheo_backend.app.dependencies import (
+    get_external_agent_runtime_store,
+    get_history_store,
+)
+from orcheo_backend.app.external_agent_runtime_store import (
+    list_external_agent_providers,
+)
 from orcheo_backend.app.history import RunHistoryError, RunHistoryStore
 from orcheo_backend.app.repository import WorkflowRepository, WorkflowRun
 
 
 logger = logging.getLogger(__name__)
+
+
+def _external_agent_provider_environment() -> dict[str, str]:
+    """Return shared external-agent auth env from the runtime store."""
+    runtime_store = get_external_agent_runtime_store()
+    merged: dict[str, str] = {}
+    for provider_name in list_external_agent_providers():
+        merged.update(runtime_store.get_provider_environment(provider_name))
+    return merged
+
+
+@contextmanager
+def _patched_environment(updates: Mapping[str, str]) -> Iterator[None]:
+    """Temporarily apply environment variables for the current backend process."""
+    original = {key: os.environ.get(key) for key in updates}
+    for key, value in updates.items():
+        os.environ[key] = value
+    try:
+        yield
+    finally:
+        for key, old_value in original.items():
+            if old_value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = old_value
 
 
 async def _start_chatkit_history(
@@ -150,7 +182,7 @@ class WorkflowExecutor:
             normalized_inputs,
         )
         execution_id = self._resolve_execution_id(run)
-        runtime_thread_id = self._resolve_runtime_thread_id(inputs, execution_id)
+        runtime_thread_id = _resolve_runtime_thread_id(inputs, execution_id)
         merged_config = merge_runnable_configs(version.runnable_config, None)
         config = cast(
             RunnableConfig,
@@ -193,7 +225,7 @@ class WorkflowExecutor:
                 state_config=state_config,
                 step_callback=step_callback,
             )
-            reply, state_view = self._build_reply_state(final_state)
+            reply, state_view = _build_reply_state(final_state)
         except Exception as exc:
             await self._record_run_failure(
                 run=run,
@@ -233,17 +265,6 @@ class WorkflowExecutor:
         if run is not None:
             return str(run.id)
         return str(uuid4())
-
-    @staticmethod
-    def _resolve_runtime_thread_id(inputs: Mapping[str, Any], execution_id: str) -> str:
-        """Resolve the LangGraph thread identifier for ChatKit executions."""
-        for key in ("thread_id", "session_id"):
-            candidate = inputs.get(key)
-            if isinstance(candidate, str):
-                normalized = candidate.strip()
-                if normalized:
-                    return normalized
-        return execution_id
 
     async def _create_run_record(
         self,
@@ -297,6 +318,7 @@ class WorkflowExecutor:
         vault = self._vault_provider()
         credential_context = CredentialAccessContext(workflow_id=workflow_id)
         credential_resolver = CredentialResolver(vault, context=credential_context)
+        external_agent_environ = _external_agent_provider_environment()
 
         async with create_checkpointer(settings) as checkpointer:
             async with create_graph_store(settings) as graph_store:
@@ -309,7 +331,10 @@ class WorkflowExecutor:
                     graph_config, inputs, runtime_config=state_config
                 )
 
-                with credential_resolution(credential_resolver):
+                with (
+                    _patched_environment(external_agent_environ),
+                    credential_resolution(credential_resolver),
+                ):
                     if (
                         step_callback is not None
                         and hasattr(compiled, "astream")
@@ -334,29 +359,6 @@ class WorkflowExecutor:
                             return getattr(snapshot, "values", snapshot)
 
                     return await compiled.ainvoke(payload, config=config)
-
-    def _build_reply_state(self, final_state: Any) -> tuple[str, Mapping[str, Any]]:
-        """Extract reply text and normalized state view from final graph state."""
-        raw_messages = self._extract_messages(final_state)
-
-        if isinstance(final_state, BaseModel):
-            state_view: Mapping[str, Any] = final_state.model_dump()
-        elif isinstance(final_state, Mapping):
-            state_view = dict(final_state)
-        else:  # pragma: no cover - defensive
-            state_view = dict(final_state or {})
-
-        state_view = dict(state_view)
-        if raw_messages:
-            state_view["_messages"] = raw_messages
-
-        reply = extract_reply_from_state(state_view)
-        if reply is None:
-            raise CustomStreamError(
-                "Workflow completed without producing a reply.",
-                allow_retry=False,
-            )
-        return reply, state_view
 
     async def _mark_run_succeeded(
         self,
@@ -406,6 +408,30 @@ class WorkflowExecutor:
 __all__ = ["WorkflowExecutor"]
 
 
+def _build_reply_state(final_state: Any) -> tuple[str, Mapping[str, Any]]:
+    """Extract reply text and normalized state view from final graph state."""
+    raw_messages = WorkflowExecutor._extract_messages(final_state)
+
+    if isinstance(final_state, BaseModel):
+        state_view: Mapping[str, Any] = final_state.model_dump()
+    elif isinstance(final_state, Mapping):
+        state_view = dict(final_state)
+    else:  # pragma: no cover - defensive
+        state_view = dict(final_state or {})
+
+    state_view = dict(state_view)
+    if raw_messages:
+        state_view["_messages"] = raw_messages
+
+    reply = extract_reply_from_state(state_view)
+    if reply is None:
+        raise CustomStreamError(
+            "Workflow completed without producing a reply.",
+            allow_retry=False,
+        )
+    return reply, state_view
+
+
 def _with_thread_id(config: Mapping[str, Any], thread_id: str) -> dict[str, Any]:
     """Return a config mapping with ``configurable.thread_id`` set."""
     normalized = dict(config)
@@ -417,6 +443,17 @@ def _with_thread_id(config: Mapping[str, Any], thread_id: str) -> dict[str, Any]
     configurable_payload["thread_id"] = thread_id
     normalized["configurable"] = configurable_payload
     return normalized
+
+
+def _resolve_runtime_thread_id(inputs: Mapping[str, Any], execution_id: str) -> str:
+    """Resolve the LangGraph thread identifier for ChatKit executions."""
+    for key in ("thread_id", "session_id"):
+        candidate = inputs.get(key)
+        if isinstance(candidate, str):
+            normalized = candidate.strip()
+            if normalized:
+                return normalized
+    return execution_id
 
 
 def _with_chatkit_model(

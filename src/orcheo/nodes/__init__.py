@@ -2,6 +2,8 @@
 
 from orcheo.nodes.agentensor import AgentensorNode
 from orcheo.nodes.ai import AgentNode, AgentReplyExtractorNode, LLMNode
+from orcheo.nodes.claude_code import ClaudeCodeNode
+from orcheo.nodes.codex import CodexNode
 from orcheo.nodes.communication import (
     DiscordWebhookNode,
     EmailNode,
@@ -85,6 +87,8 @@ __all__ = [
     "AgentNode",
     "AgentReplyExtractorNode",
     "LLMNode",
+    "ClaudeCodeNode",
+    "CodexNode",
     "AgentensorNode",
     "HttpRequestNode",
     "JsonProcessingNode",

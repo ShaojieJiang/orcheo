@@ -1,10 +1,13 @@
 """Tests for the execute_run Celery task."""
 
 from __future__ import annotations
+import os
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 import pytest
+from orcheo_backend.app.external_agent_runtime_store import ExternalAgentRuntimeStore
+from orcheo_backend.app.schemas.system import ExternalAgentProviderName
 
 
 @pytest.fixture
@@ -199,3 +202,76 @@ class TestDispatchCronTriggers:
 
         assert "dispatched_runs" in result
         assert result["dispatched_runs"] == expected_run_ids
+
+
+class TestExternalAgentTasks:
+    """Tests for worker-side external agent helper tasks."""
+
+    def test_external_agent_provider_environment_loads_from_runtime_store(self) -> None:
+        """Worker tasks should load shared provider env vars from the runtime store."""
+        from orcheo_backend.worker.tasks import _external_agent_provider_environment
+
+        store = ExternalAgentRuntimeStore()
+        store._redis = None
+        store.save_provider_environment(
+            ExternalAgentProviderName.CLAUDE_CODE,
+            {"CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-shared"},
+        )
+
+        with patch(
+            "orcheo_backend.app.dependencies.get_external_agent_runtime_store",
+            return_value=store,
+        ):
+            environ = _external_agent_provider_environment()
+
+        assert environ["CLAUDE_CODE_OAUTH_TOKEN"] == "sk-ant-shared"
+
+    def test_patched_environment_temporarily_sets_provider_env(self) -> None:
+        """Patched env should expose shared auth during a run and restore after."""
+        from orcheo_backend.worker.tasks import _patched_environment
+
+        os.environ.pop("CLAUDE_CODE_OAUTH_TOKEN", None)
+        with _patched_environment({"CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-shared"}):
+            assert os.environ["CLAUDE_CODE_OAUTH_TOKEN"] == "sk-ant-shared"
+
+        assert "CLAUDE_CODE_OAUTH_TOKEN" not in os.environ
+
+    def test_refresh_external_agent_status_runs_async_helper(self) -> None:
+        """The refresh task should delegate to the async helper via the event loop."""
+        from orcheo_backend.worker.tasks import refresh_external_agent_status
+
+        mock_result = {"status": "ready"}
+
+        with patch("orcheo_backend.worker.tasks._get_event_loop") as mock_get_loop:
+            mock_loop = MagicMock()
+            mock_loop.run_until_complete.return_value = mock_result
+            mock_get_loop.return_value = mock_loop
+
+            with patch(
+                "orcheo_backend.worker.tasks._refresh_external_agent_status_async",
+                new=MagicMock(return_value=MagicMock()),
+            ):
+                result = refresh_external_agent_status("codex")
+
+        assert result == mock_result
+        mock_loop.run_until_complete.assert_called_once()
+
+    def test_start_external_agent_login_runs_async_helper(self) -> None:
+        """The login task should delegate to the async helper via the event loop."""
+        from orcheo_backend.worker.tasks import start_external_agent_login
+
+        mock_result = {"status": "authenticated"}
+
+        with patch("orcheo_backend.worker.tasks._get_event_loop") as mock_get_loop:
+            mock_loop = MagicMock()
+            mock_loop.run_until_complete.return_value = mock_result
+            mock_get_loop.return_value = mock_loop
+
+            with patch(
+                "orcheo_backend.worker.tasks._start_external_agent_login_async",
+                new=MagicMock(return_value=MagicMock()),
+            ):
+                result = start_external_agent_login("codex", "session-1")
+
+        assert result == mock_result
+        mock_loop.run_until_complete.assert_called_once()

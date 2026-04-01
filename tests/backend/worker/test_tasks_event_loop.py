@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 import asyncio
+import os
 from unittest.mock import patch
+import pytest
 
 
 class TestGetEventLoop:
@@ -70,3 +72,45 @@ class TestGetEventLoop:
                     mock_set.assert_called_once_with(new_loop)
 
         new_loop.close()
+
+
+def test_patched_environment_restores_existing_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo_backend.worker.tasks import _patched_environment
+
+    key = "ORCHEO_TASKS_TEST_ENV"
+    monkeypatch.setenv(key, "original")
+
+    with _patched_environment({key: "override"}):
+        assert os.environ[key] == "override"
+
+    assert os.environ[key] == "original"
+
+
+@pytest.mark.asyncio
+async def test_refresh_external_agent_status_async_proxies_to_worker_helper() -> None:
+    from orcheo_backend.worker.tasks import _refresh_external_agent_status_async
+
+    with patch(
+        "orcheo_backend.worker.external_agents.refresh_external_agent_status_async",
+        return_value={"status": "ready"},
+    ) as refresh:
+        result = await _refresh_external_agent_status_async("codex")
+
+    refresh.assert_awaited_once_with("codex")
+    assert result == {"status": "ready"}
+
+
+@pytest.mark.asyncio
+async def test_start_external_agent_login_async_proxies_to_worker_helper() -> None:
+    from orcheo_backend.worker.tasks import _start_external_agent_login_async
+
+    with patch(
+        "orcheo_backend.worker.external_agents.start_external_agent_login_async",
+        return_value={"status": "authenticated"},
+    ) as start:
+        result = await _start_external_agent_login_async("codex", "session-1")
+
+    start.assert_awaited_once_with("codex", "session-1")
+    assert result == {"status": "authenticated"}

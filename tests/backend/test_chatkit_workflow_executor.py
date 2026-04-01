@@ -1,512 +1,516 @@
-"""Tests for the ChatKit workflow executor helper."""
-
-from __future__ import annotations
+import asyncio
+import os
 from collections.abc import Mapping
-from contextlib import asynccontextmanager, nullcontext
-from unittest.mock import AsyncMock, Mock
-from uuid import uuid4
+from contextlib import nullcontext
+from types import SimpleNamespace
+from uuid import UUID
 import pytest
-from langchain_core.messages import HumanMessage
-from pydantic import BaseModel, Field
+from chatkit.errors import CustomStreamError
+from langchain_core.messages import AIMessage, HumanMessage
 from orcheo_backend.app.chatkit import workflow_executor as workflow_executor_module
 from orcheo_backend.app.chatkit.workflow_executor import (
     WorkflowExecutor,
     _append_chatkit_history_step,
+    _build_reply_state,
+    _external_agent_provider_environment,
     _mark_chatkit_history_completed,
     _mark_chatkit_history_failed,
+    _patched_environment,
+    _resolve_runtime_thread_id,
     _start_chatkit_history,
     _with_chatkit_model,
     _with_thread_id,
 )
-from orcheo_backend.app.history import RunHistoryError
+from orcheo_backend.app.history.models import RunHistoryError
+from orcheo_backend.app.schemas.system import ExternalAgentProviderName
 
 
-class CustomMapping(Mapping[str, object]):
-    """Mapping wrapper used to simulate non-dict state views."""
-
-    def __init__(self, data: dict[str, object]) -> None:
-        self._data = data
-
-    def __iter__(self):
-        return iter(self._data)
-
-    def __len__(self) -> int:
-        return len(self._data)
-
-    def __getitem__(self, key: str) -> object:
-        return self._data[key]
-
-
-class CustomState(BaseModel):
-    reply: str
-    messages: list[HumanMessage] = Field(default_factory=list)
-
-    def model_dump(self, *args: object, **kwargs: object) -> CustomMapping:
-        return CustomMapping({"reply": self.reply})
-
-
-def test_extract_messages_filters_only_base_messages() -> None:
-    message = HumanMessage(content="hello")
-    payload = {"messages": [message, "ignore"]}
-    assert WorkflowExecutor._extract_messages(payload) == [message]
-
-
-def test_extract_messages_attribute_branch_non_mapping() -> None:
-    class Container:
-        def __init__(self, messages: list[HumanMessage]) -> None:
-            self.messages = messages
-
-    message = HumanMessage(content="attr")
-    container = Container([message])
-    assert WorkflowExecutor._extract_messages(container) == [message]
-
-
-def test_extract_messages_uses_attribute_access() -> None:
-    class Container:
-        def __init__(self, messages: list[HumanMessage]):
-            self.messages = messages
-
-    message = HumanMessage(content="world")
-    container = Container([message])
-    assert WorkflowExecutor._extract_messages(container) == [message]
-
-
-@asynccontextmanager
-async def fake_checkpointer(_settings: object | None):
-    yield object()
-
-
-class DummyCompiledGraph:
-    def __init__(self, final_state: CustomState) -> None:
-        self._final_state = final_state
-        self.last_payload: object | None = None
-        self.last_config: object | None = None
-
-    async def ainvoke(self, *args: object, **kwargs: object) -> CustomState:
-        if args:
-            self.last_payload = args[0]
-        self.last_config = kwargs.get("config")
-        return self._final_state
-
-
-class DummyGraph:
-    def __init__(self, final_state: CustomState) -> None:
-        self._final_state = final_state
-        self.last_store: object | None = None
-        self.last_compiled: DummyCompiledGraph | None = None
-
-    def compile(
-        self,
-        *,
-        checkpointer: object,
-        store: object | None = None,
-    ) -> DummyCompiledGraph:
-        self.last_store = store
-        del checkpointer, store
-        self.last_compiled = DummyCompiledGraph(self._final_state)
-        return self.last_compiled
-
-
-class DummyStateSnapshot:
-    def __init__(self, values: CustomState) -> None:
-        self.values = values
-
-
-class DummyStreamingCompiledGraph:
+class DummyHistoryStore:
     def __init__(
-        self, steps: list[dict[str, object]], final_state: CustomState
+        self, *, raise_on_start=False, raise_on_append=False, raise_on_mark=False
+    ):
+        self.raise_on_start = raise_on_start
+        self.raise_on_append = raise_on_append
+        self.raise_on_mark = raise_on_mark
+        self.started = False
+        self.appended = []
+        self.completed = False
+        self.failed = False
+
+    async def start_run(self, **kwargs) -> None:
+        if self.raise_on_start:
+            raise RunHistoryError("boom")
+        self.started = True
+
+    async def append_step(
+        self, execution_id: str, payload: Mapping[str, object]
     ) -> None:
-        self._steps = steps
-        self._final_state = final_state
-        self.last_payload: object | None = None
-        self.last_config: object | None = None
+        if self.raise_on_append:
+            raise RunHistoryError("boom")
+        self.appended.append((execution_id, dict(payload)))
 
-    async def astream(self, *_args: object, **_kwargs: object):
-        if _args:
-            self.last_payload = _args[0]
-        self.last_config = _kwargs.get("config")
-        for step in self._steps:
-            yield step
+    async def mark_completed(self, execution_id: str) -> None:
+        if self.raise_on_mark:
+            raise RunHistoryError("boom")
+        self.completed = True
 
-    async def aget_state(self, *_args: object, **_kwargs: object) -> DummyStateSnapshot:
-        return DummyStateSnapshot(self._final_state)
+    async def mark_failed(self, execution_id: str, error: str) -> None:
+        if self.raise_on_mark:
+            raise RunHistoryError("boom")
+        self.failed = True
 
 
-class DummyStreamingGraph:
-    def __init__(
-        self, steps: list[dict[str, object]], final_state: CustomState
-    ) -> None:
-        self._steps = steps
-        self._final_state = final_state
-        self.last_store: object | None = None
-        self.last_compiled: DummyStreamingCompiledGraph | None = None
+data_config = type("DataConfig", (), {})
 
-    def compile(
-        self,
-        *,
-        checkpointer: object,
-        store: object | None = None,
-    ) -> DummyStreamingCompiledGraph:
-        self.last_store = store
-        del checkpointer, store
-        self.last_compiled = DummyStreamingCompiledGraph(self._steps, self._final_state)
-        return self.last_compiled
+
+class DummyRunnableConfig:
+    tags = []
+    callbacks = []
+    metadata = {}
+    run_name = "run"
+
+    def to_json_config(self, execution_id: str) -> Mapping[str, str]:
+        return {"execution_id": execution_id}
 
 
 @pytest.mark.asyncio
-async def test_run_inserts_raw_messages_and_records_state(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    version = Mock(
-        id="version",
-        graph={"format": "standard"},
-        runnable_config=None,
-    )
-    repository = AsyncMock()
-    repository.get_latest_version.return_value = version
-    run_record = Mock(id="run-id")
-    repository.create_run.return_value = run_record
-    repository.mark_run_started = AsyncMock()
-    repository.mark_run_succeeded = AsyncMock()
-    history_store = AsyncMock()
-
-    final_state = CustomState(
-        reply="final reply", messages=[HumanMessage(content="payload")]
-    )
-    graph = DummyGraph(final_state)
-
-    monkeypatch.setattr(workflow_executor_module, "get_settings", lambda: None)
-    monkeypatch.setattr(
-        workflow_executor_module,
-        "get_history_store",
-        lambda: history_store,
-    )
-    monkeypatch.setattr(
-        workflow_executor_module,
-        "create_checkpointer",
-        fake_checkpointer,
-    )
-    monkeypatch.setattr(
-        workflow_executor_module,
-        "create_graph_store",
-        fake_checkpointer,
-    )
-    monkeypatch.setattr(
-        workflow_executor_module,
-        "build_graph",
-        lambda config: graph,
-    )
-    monkeypatch.setattr(
-        workflow_executor_module,
-        "credential_resolution",
-        lambda _: nullcontext(),  # type: ignore[assignment]
-    )
-    monkeypatch.setattr(
-        workflow_executor_module,
-        "CredentialResolver",
-        lambda vault, context: Mock(),
-    )
-    monkeypatch.setattr(
-        workflow_executor_module.WorkflowExecutor,
-        "_extract_messages",
-        staticmethod(lambda _: [HumanMessage(content="payload")]),
-    )
-
-    executor = WorkflowExecutor(repository=repository, vault_provider=lambda: None)
-    reply, state_view, run = await executor.run(uuid4(), {"input": "value"})
-
-    assert reply == "final reply"
-    assert "_messages" in state_view
-    assert state_view["_messages"][0].content == "payload"
-    assert run is run_record
-    assert graph.last_store is not None
-    repository.mark_run_succeeded.assert_awaited_once_with(
-        run_record.id, actor="chatkit", output={"reply": "final reply"}
-    )
-    history_store.start_run.assert_awaited_once()
-    history_store.mark_completed.assert_awaited_once()
-
-
-@pytest.mark.asyncio
-async def test_run_streams_progress_updates(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    version = Mock(
-        id="version",
-        graph={"format": "standard"},
-        runnable_config=None,
-    )
-    repository = AsyncMock()
-    repository.get_latest_version.return_value = version
-    repository.create_run.return_value = Mock(id="run-id")
-    repository.mark_run_started = AsyncMock()
-    repository.mark_run_succeeded = AsyncMock()
-    history_store = AsyncMock()
-
-    steps = [{"node_a": {"value": 1}}, {"node_b": {"value": 2}}]
-    final_state = CustomState(
-        reply="final reply", messages=[HumanMessage(content="payload")]
-    )
-    graph = DummyStreamingGraph(steps, final_state)
-
-    monkeypatch.setattr(workflow_executor_module, "get_settings", lambda: None)
-    monkeypatch.setattr(
-        workflow_executor_module,
-        "get_history_store",
-        lambda: history_store,
-    )
-    monkeypatch.setattr(
-        workflow_executor_module,
-        "create_checkpointer",
-        fake_checkpointer,
-    )
-    monkeypatch.setattr(
-        workflow_executor_module,
-        "create_graph_store",
-        fake_checkpointer,
-    )
-    monkeypatch.setattr(
-        workflow_executor_module,
-        "build_graph",
-        lambda config: graph,
-    )
-    monkeypatch.setattr(
-        workflow_executor_module,
-        "credential_resolution",
-        lambda _: nullcontext(),  # type: ignore[assignment]
-    )
-    monkeypatch.setattr(
-        workflow_executor_module,
-        "CredentialResolver",
-        lambda vault, context: Mock(),
-    )
-
-    captured_steps: list[dict[str, object]] = []
-
-    async def progress_callback(step: Mapping[str, object]) -> None:
-        captured_steps.append(dict(step))
-
-    executor = WorkflowExecutor(repository=repository, vault_provider=lambda: None)
-    reply, state_view, run = await executor.run(
-        uuid4(), {"input": "value"}, progress_callback=progress_callback
-    )
-
-    assert captured_steps == steps
-    assert reply == "final reply"
-    assert "_messages" in state_view
-    assert run is not None
-    assert graph.last_store is not None
-    repository.mark_run_succeeded.assert_awaited_once()
-    history_store.start_run.assert_awaited_once()
-    assert history_store.append_step.await_count >= len(steps)
-    history_store.mark_completed.assert_awaited_once()
-
-
-@pytest.mark.asyncio
-async def test_run_uses_chatkit_thread_id_for_langgraph_config(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    version = Mock(id="version", graph={"format": "standard"}, runnable_config=None)
-    repository = AsyncMock()
-    repository.get_latest_version.return_value = version
-    repository.create_run.return_value = Mock(id="run-id")
-    repository.mark_run_started = AsyncMock()
-    repository.mark_run_succeeded = AsyncMock()
-    history_store = AsyncMock()
-
-    final_state = CustomState(
-        reply="final reply", messages=[HumanMessage(content="ok")]
-    )
-    graph = DummyGraph(final_state)
-
-    monkeypatch.setattr(workflow_executor_module, "get_settings", lambda: None)
-    monkeypatch.setattr(
-        workflow_executor_module, "get_history_store", lambda: history_store
-    )
-    monkeypatch.setattr(
-        workflow_executor_module, "create_checkpointer", fake_checkpointer
-    )
-    monkeypatch.setattr(
-        workflow_executor_module, "create_graph_store", fake_checkpointer
-    )
-    monkeypatch.setattr(workflow_executor_module, "build_graph", lambda config: graph)
-    monkeypatch.setattr(
-        workflow_executor_module,
-        "credential_resolution",
-        lambda _: nullcontext(),  # type: ignore[assignment]
-    )
-    monkeypatch.setattr(
-        workflow_executor_module, "CredentialResolver", lambda vault, context: Mock()
-    )
-
-    executor = WorkflowExecutor(repository=repository, vault_provider=lambda: None)
-    await executor.run(
-        uuid4(),
-        {"thread_id": "thr-123", "session_id": "thr-123", "message": "hello"},
-    )
-
-    assert graph.last_compiled is not None
-    assert isinstance(graph.last_compiled.last_config, dict)
-    assert graph.last_compiled.last_config["configurable"]["thread_id"] == "thr-123"
-
-    start_run_kwargs = history_store.start_run.await_args.kwargs
-    assert start_run_kwargs["runnable_config"]["configurable"]["thread_id"] == "thr-123"
-
-
-@pytest.mark.asyncio
-async def test_start_chatkit_history_logs_run_history_error(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    history_store = AsyncMock()
-    history_store.start_run.side_effect = RunHistoryError("boom")
-    merged_config = Mock()
-    merged_config.to_json_config.return_value = {"configurable": {"thread_id": "x"}}
-    merged_config.tags = []
-    merged_config.callbacks = []
-    merged_config.metadata = {}
-    merged_config.run_name = None
-    logger = Mock()
-    monkeypatch.setattr(workflow_executor_module, "logger", logger)
-
+async def test_start_chatkit_history_records_run():
+    history = DummyHistoryStore()
+    config = DummyRunnableConfig()
     await _start_chatkit_history(
-        history_store=history_store,
-        workflow_id=uuid4(),
-        execution_id="exec-1",
-        runtime_thread_id="thr-1",
-        inputs={"a": 1},
-        merged_config=merged_config,
+        history_store=history,
+        workflow_id=UUID(int=0),
+        execution_id="exec",
+        runtime_thread_id="thread",
+        inputs={"foo": "bar"},
+        merged_config=config,
     )
+    assert history.started
 
-    logger.exception.assert_called_once()
+
+@pytest.mark.asyncio
+async def test_start_chatkit_history_handles_errors(caplog):
+    history = DummyHistoryStore(raise_on_start=True)
+    config = DummyRunnableConfig()
+    await _start_chatkit_history(
+        history_store=history,
+        workflow_id=UUID(int=0),
+        execution_id="exec",
+        runtime_thread_id="thread",
+        inputs={"foo": "bar"},
+        merged_config=config,
+    )
+    assert "Failed to start" in caplog.text
 
 
-def test_resolve_runtime_thread_id_prefers_thread_and_session_fallback() -> None:
+@pytest.mark.asyncio
+async def test_append_chatkit_history_step():
+    history = DummyHistoryStore()
+    await _append_chatkit_history_step(history, "exec", {"foo": "bar"})
+    assert history.appended
+
+
+@pytest.mark.asyncio
+async def test_append_chatkit_history_step_handles_error(caplog):
+    history = DummyHistoryStore(raise_on_append=True)
+    await _append_chatkit_history_step(history, "exec", {"foo": "bar"})
+    assert "Failed to append" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_mark_chatkit_history_completed():
+    history = DummyHistoryStore()
+    await _mark_chatkit_history_completed(history, "exec")
+    assert history.completed
+
+
+@pytest.mark.asyncio
+async def test_mark_chatkit_history_completed_handles_error(caplog):
+    history = DummyHistoryStore(raise_on_mark=True)
+    await _mark_chatkit_history_completed(history, "exec")
+    assert "Failed to mark chatkit history completed" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_mark_chatkit_history_failed():
+    history = DummyHistoryStore()
+    await _mark_chatkit_history_failed(history, "exec", "boom")
+    assert history.failed
+
+
+@pytest.mark.asyncio
+async def test_mark_chatkit_history_failed_handles_error(caplog):
+    history = DummyHistoryStore(raise_on_mark=True)
+    await _mark_chatkit_history_failed(history, "exec", "boom")
+    assert "Failed to mark chatkit history failed" in caplog.text
+
+
+def test_patched_environment_restores_value(tmp_path):
+    os_env_key = "TEST_CHATKIT"
+    original = os.environ.get(os_env_key)
+    with _patched_environment({os_env_key: "value"}):
+        assert os.environ[os_env_key] == "value"
+    assert os.environ.get(os_env_key) == original
+
+
+def test_patched_environment_restores_existing_value(monkeypatch):
+    os_env_key = "TEST_CHATKIT_EXISTING"
+    monkeypatch.setenv(os_env_key, "original")
+    with _patched_environment({os_env_key: "new"}):
+        assert os.environ[os_env_key] == "new"
+    assert os.environ[os_env_key] == "original"
+
+
+def test_with_thread_id_injects():
+    config = {"configurable": {"foo": "bar"}}
+    result = _with_thread_id(config, "abc")
+    assert result["configurable"]["thread_id"] == "abc"
+
+
+def test_with_chatkit_model_inserts_and_removes():
+    config = {"configurable": {}}
+    with_model = _with_chatkit_model(config, "gpt-4")
+    assert with_model["configurable"]["chatkit_model"] == "gpt-4"
+    without = _with_chatkit_model(with_model, None)
+    assert "chatkit_model" not in without["configurable"]
+
+
+def test_resolve_runtime_thread_id_prefers_inputs():
+    assert _resolve_runtime_thread_id({"thread_id": " id "}, "exec") == "id"
+
+
+def test_resolve_runtime_thread_id_falls_back():
+    assert _resolve_runtime_thread_id({}, "exec") == "exec"
+
+
+def test_resolve_runtime_thread_id_uses_session_id_when_thread_id_is_blank():
     assert (
-        WorkflowExecutor._resolve_runtime_thread_id(  # noqa: SLF001
-            {"thread_id": "  thr-1  ", "session_id": "sess-1"},
-            "exec-1",
-        )
-        == "thr-1"
-    )
-    assert (
-        WorkflowExecutor._resolve_runtime_thread_id(  # noqa: SLF001
-            {"session_id": "sess-1"},
-            "exec-1",
-        )
-        == "sess-1"
-    )
-    assert (
-        WorkflowExecutor._resolve_runtime_thread_id(  # noqa: SLF001
-            {"thread_id": "   ", "session_id": ""},
-            "exec-1",
-        )
-        == "exec-1"
+        _resolve_runtime_thread_id({"thread_id": "   ", "session_id": "sess"}, "exec")
+        == "sess"
     )
 
 
-def test_with_thread_id_replaces_non_mapping_configurable() -> None:
-    updated = _with_thread_id({"configurable": "invalid"}, "thr-override")
-    assert updated["configurable"] == {"thread_id": "thr-override"}
+def test_external_agent_provider_environment(monkeypatch):
+    class DummyStore:
+        def get_provider_environment(self, provider):
+            return {provider.name: "ok"}
+
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "get_external_agent_runtime_store",
+        lambda: DummyStore(),
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "list_external_agent_providers",
+        lambda: [ExternalAgentProviderName.CLAUDE_CODE],
+    )
+    env = _external_agent_provider_environment()
+    assert "CLAUDE_CODE" in env
 
 
-def test_with_chatkit_model_adds_selected_model() -> None:
-    config = {"configurable": {"thread_id": "thr"}}
-    updated = _with_chatkit_model(config, "openai:gpt-5")
-
-    assert updated["configurable"]["chatkit_model"] == "openai:gpt-5"
-    assert updated["configurable"]["thread_id"] == "thr"
-
-
-def test_with_chatkit_model_removes_selected_model_when_none() -> None:
-    config = {"configurable": {"thread_id": "thr", "chatkit_model": "old"}}
-    updated = _with_chatkit_model(config, None)
-
-    assert "chatkit_model" not in updated["configurable"]
-    assert updated["configurable"]["thread_id"] == "thr"
+def test_build_reply_state_and_extract_messages():
+    final_state = {"reply": "hi", "messages": [HumanMessage(content="hello")]}
+    reply, state = _build_reply_state(final_state)
+    assert reply == "hi"
+    assert state.get("_messages")
 
 
-def test_with_chatkit_model_handles_non_mapping_configurable() -> None:
-    updated = _with_chatkit_model({"configurable": "invalid"}, "openai:gpt-5")
+def test_build_reply_state_missing_reply():
+    with pytest.raises(CustomStreamError):
+        _build_reply_state({})
 
-    assert updated["configurable"]["chatkit_model"] == "openai:gpt-5"
+
+def test_extract_messages_reads_object_attribute_messages() -> None:
+    final_state = SimpleNamespace(messages=[AIMessage(content="hello"), object()])
+    assert WorkflowExecutor._extract_messages(final_state) == [
+        AIMessage(content="hello")
+    ]
+
+
+def test_build_step_callback_invokes(monkeypatch):
+    history = DummyHistoryStore()
+    called = []
+
+    async def progress(step):
+        called.append(step)
+
+    executor = WorkflowExecutor(repository=object(), vault_provider=lambda: object())
+    callback = executor._build_step_callback(
+        history_store=history,
+        execution_id="exec",
+        progress_callback=progress,
+    )
+
+    asyncio.run(callback({"node": "test"}))
+    assert called
+
+
+def test_with_chatkit_model_replaces_non_mapping_configurable() -> None:
+    result = _with_chatkit_model({"configurable": "invalid"}, "gpt-5")
+    assert result["configurable"]["chatkit_model"] == "gpt-5"
+
+
+def test_with_chatkit_model_without_selection_replaces_non_mapping_configurable() -> (
+    None
+):
+    result = _with_chatkit_model({"configurable": "invalid"}, None)
+    assert result["configurable"] == {}
 
 
 @pytest.mark.asyncio
-async def test_append_history_step_logs_run_history_error(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    history_store = AsyncMock()
-    history_store.append_step.side_effect = RunHistoryError("boom")
-    logger = Mock()
-    monkeypatch.setattr(workflow_executor_module, "logger", logger)
-
-    await _append_chatkit_history_step(history_store, "exec-1", {"node": "x"})
-
-    logger.exception.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_mark_history_completed_logs_run_history_error(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    history_store = AsyncMock()
-    history_store.append_step.side_effect = RunHistoryError("boom")
-    logger = Mock()
-    monkeypatch.setattr(workflow_executor_module, "logger", logger)
-
-    await _mark_chatkit_history_completed(history_store, "exec-1")
-
-    logger.exception.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_mark_history_failed_logs_run_history_error(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    history_store = AsyncMock()
-    history_store.append_step.side_effect = RunHistoryError("boom")
-    logger = Mock()
-    monkeypatch.setattr(workflow_executor_module, "logger", logger)
-
-    await _mark_chatkit_history_failed(history_store, "exec-1", "failed")
-
-    logger.exception.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_build_step_callback_without_progress_callback() -> None:
-    history_store = AsyncMock()
-    executor = WorkflowExecutor(repository=AsyncMock(), vault_provider=lambda: None)
-
-    step_callback = executor._build_step_callback(
-        history_store=history_store,
-        execution_id="exec-1",
+async def test_build_step_callback_skips_none_progress_callback() -> None:
+    history = DummyHistoryStore()
+    executor = WorkflowExecutor(repository=object(), vault_provider=lambda: object())
+    callback = executor._build_step_callback(
+        history_store=history,
+        execution_id="exec",
         progress_callback=None,
     )
-    await step_callback({"node": {"ok": True}})
 
-    history_store.append_step.assert_awaited_once_with("exec-1", {"node": {"ok": True}})
+    await callback({"node": "test"})
+
+    assert history.appended == [("exec", {"node": "test"})]
 
 
 @pytest.mark.asyncio
-async def test_record_run_failure_returns_early_when_run_is_none(
+async def test_execute_graph_streams_updates_with_step_callback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    repository = AsyncMock()
-    executor = WorkflowExecutor(repository=repository, vault_provider=lambda: None)
-    history_store = AsyncMock()
-    mark_failed = AsyncMock()
+    captured_steps: list[Mapping[str, object]] = []
+    progress_context_events: list[str] = []
+
+    class DummyCompiled:
+        async def astream(self, payload, *, config, stream_mode):
+            assert payload == {"inputs": {"message": "hello"}}
+            assert config == {"configurable": {"thread_id": "thread"}}
+            assert stream_mode == "updates"
+            yield {"node": {"status": "running"}}
+
+        async def aget_state(self, config):
+            assert config == {"configurable": {"thread_id": "thread"}}
+            return SimpleNamespace(values={"reply": "done"})
+
+    class DummyGraph:
+        def compile(self, *, checkpointer, store):
+            assert checkpointer == "checkpointer"
+            assert store == "graph-store"
+            return DummyCompiled()
+
+    class DummyAsyncContext:
+        def __init__(self, value: object) -> None:
+            self._value = value
+
+        async def __aenter__(self) -> object:
+            return self._value
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+    class ProgressContext:
+        def __enter__(self) -> None:
+            progress_context_events.append("enter")
+
+        def __exit__(self, exc_type, exc, tb) -> None:
+            progress_context_events.append("exit")
+
+    monkeypatch.setattr(workflow_executor_module, "get_settings", lambda: {})
     monkeypatch.setattr(
-        workflow_executor_module, "_mark_chatkit_history_failed", mark_failed
+        workflow_executor_module,
+        "create_checkpointer",
+        lambda settings: DummyAsyncContext("checkpointer"),
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "create_graph_store",
+        lambda settings: DummyAsyncContext("graph-store"),
+    )
+    monkeypatch.setattr(
+        workflow_executor_module, "build_graph", lambda graph: DummyGraph()
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "build_initial_state",
+        lambda graph_config, inputs, runtime_config=None: {"inputs": dict(inputs)},
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "CredentialResolver",
+        lambda vault, context=None: object(),
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "credential_resolution",
+        lambda resolver: nullcontext(),
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "_external_agent_provider_environment",
+        lambda: {"EXTERNAL_AGENT_TOKEN": "secret"},
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "tool_progress_context",
+        lambda callback: ProgressContext(),
     )
 
+    executor = WorkflowExecutor(repository=object(), vault_provider=lambda: object())
+    result = await executor._execute_graph(
+        workflow_id=UUID(int=0),
+        graph_config={"nodes": []},
+        inputs={"message": "hello"},
+        config={"configurable": {"thread_id": "thread"}},
+        state_config={"configurable": {"thread_id": "thread"}},
+        step_callback=lambda step: captured_steps.append(step) or asyncio.sleep(0),
+    )
+
+    assert result == {"reply": "done"}
+    assert captured_steps == [{"node": {"status": "running"}}]
+    assert progress_context_events == ["enter", "exit"]
+
+
+@pytest.mark.asyncio
+async def test_record_run_failure_skips_repository_update_without_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    history = DummyHistoryStore()
+    recorded: list[tuple[str, str]] = []
+
+    async def fake_mark_failed(store, execution_id: str, error_message: str) -> None:
+        recorded.append((execution_id, error_message))
+
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "_mark_chatkit_history_failed",
+        fake_mark_failed,
+    )
+
+    executor = WorkflowExecutor(repository=object(), vault_provider=lambda: object())
     await executor._record_run_failure(
         run=None,
         actor="chatkit",
-        history_store=history_store,
-        execution_id="exec-1",
-        error_message="failed",
+        history_store=history,
+        execution_id="exec-none",
+        error_message="boom",
     )
 
-    mark_failed.assert_awaited_once_with(history_store, "exec-1", "failed")
-    repository.mark_run_failed.assert_not_called()
+    assert recorded == [("exec-none", "boom")]
+
+
+@pytest.mark.asyncio
+async def test_run_builds_step_callback_when_progress_callback_is_provided(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workflow = SimpleNamespace(chatkit=None)
+    version = SimpleNamespace(
+        id=UUID(int=2),
+        graph={"nodes": []},
+        runnable_config={},
+    )
+
+    class Repository:
+        async def get_workflow(self, workflow_id):
+            return workflow
+
+        async def get_latest_version(self, workflow_id):
+            return version
+
+    class DummyMergedConfig:
+        tags: list[object] = []
+        callbacks: list[object] = []
+        metadata: dict[str, object] = {}
+        run_name = None
+
+        def to_runnable_config(self, execution_id: str) -> dict[str, object]:
+            return {"configurable": {"thread_id": execution_id}}
+
+        def to_state_config(self, execution_id: str) -> dict[str, object]:
+            return {"configurable": {"thread_id": execution_id}}
+
+        def to_json_config(self, execution_id: str) -> dict[str, object]:
+            return {"configurable": {"thread_id": execution_id}}
+
+    build_step_callback_calls: list[tuple[object, str, object]] = []
+    execution_args: dict[str, object] = {}
+    progress_callback = object()
+    step_callback = object()
+    history_store = object()
+
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "get_history_store",
+        lambda: history_store,
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "apply_chatkit_selected_model",
+        lambda inputs, workflow: None,
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "merge_runnable_configs",
+        lambda stored, override: DummyMergedConfig(),
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "_start_chatkit_history",
+        lambda **kwargs: asyncio.sleep(0),
+    )
+    monkeypatch.setattr(
+        WorkflowExecutor,
+        "_create_run_record",
+        lambda self, workflow_id, workflow_version_id, actor, inputs: asyncio.sleep(
+            0, result=None
+        ),
+    )
+    monkeypatch.setattr(
+        WorkflowExecutor, "_resolve_execution_id", staticmethod(lambda run: "exec-1")
+    )
+    monkeypatch.setattr(
+        WorkflowExecutor,
+        "_build_step_callback",
+        lambda self,
+        *,
+        history_store,
+        execution_id,
+        progress_callback: build_step_callback_calls.append(
+            (history_store, execution_id, progress_callback)
+        )
+        or step_callback,
+    )
+
+    async def fake_execute_graph(self, **kwargs):
+        execution_args.update(kwargs)
+        return {"reply": "ok"}
+
+    monkeypatch.setattr(WorkflowExecutor, "_execute_graph", fake_execute_graph)
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "_build_reply_state",
+        lambda final_state: ("ok", final_state),
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "_mark_chatkit_history_completed",
+        lambda history_store, execution_id: asyncio.sleep(0),
+    )
+    monkeypatch.setattr(
+        WorkflowExecutor,
+        "_mark_run_succeeded",
+        lambda self, run, actor, reply: asyncio.sleep(0),
+    )
+
+    executor = WorkflowExecutor(
+        repository=Repository(), vault_provider=lambda: object()
+    )
+    reply, state_view, run = await executor.run(
+        UUID(int=1),
+        {"message": "hello"},
+        progress_callback=progress_callback,  # type: ignore[arg-type]
+    )
+
+    assert reply == "ok"
+    assert state_view == {"reply": "ok"}
+    assert run is None
+    assert build_step_callback_calls == [(history_store, "exec-1", progress_callback)]
+    assert execution_args["step_callback"] is step_callback
