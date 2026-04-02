@@ -1,6 +1,7 @@
 """Unit tests for the external agent node implementation."""
 
 from __future__ import annotations
+import logging
 from pathlib import Path
 from typing import Any
 import pytest
@@ -28,6 +29,7 @@ class DummyProvider:
 
     def __init__(self, *, authenticated: bool = True) -> None:
         self.authenticated = authenticated
+        self.audit_metadata: dict[str, Any] | None = None
 
     def probe_auth(
         self,
@@ -62,6 +64,16 @@ class DummyProvider:
         environ: dict[str, str] | None = None,
     ) -> dict[str, str]:
         return dict(environ or {})
+
+    def execution_audit_metadata(
+        self,
+        runtime: ResolvedRuntime,
+        *,
+        command: list[str],
+        working_directory: Path | None = None,
+    ) -> dict[str, Any] | None:
+        del runtime, command, working_directory
+        return self.audit_metadata
 
 
 class FakeRuntimeManager:
@@ -470,3 +482,51 @@ async def test_run_succeeds_with_zero_exit(
 
     assert result["status"] == "succeeded"
     assert result["stdout"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_run_logs_bypass_flag_audit_event(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    resolution = _make_runtime_resolution(tmp_path)
+    provider = DummyProvider()
+    provider.audit_metadata = {
+        "event": "external_agent_bypass_flags_used",
+        "provider": "dummy_agent",
+        "bypass_flags": ["--dangerous"],
+        "security_boundary": "container_isolation",
+    }
+    manager = FakeRuntimeManager(provider=provider, resolution=resolution)
+    node = _make_node(manager)
+    state = _make_state({"prompt": "run"})
+
+    async def fake_execute(*args: object, **kwargs: object) -> ProcessExecutionResult:
+        return ProcessExecutionResult(
+            command=["dummy"],
+            stdout="ok",
+            stderr="",
+            exit_code=0,
+            timed_out=False,
+            duration_seconds=0,
+        )
+
+    monkeypatch.setattr(
+        "orcheo.nodes.external_agent.execute_process",
+        fake_execute,
+    )
+
+    with caplog.at_level(logging.INFO, logger="orcheo.nodes.external_agent"):
+        await node.run(state, RunnableConfig())
+
+    record = next(
+        r
+        for r in caplog.records
+        if r.message == "External agent execution requested provider bypass flags."
+    )
+    assert record.event == "external_agent_bypass_flags_used"
+    assert record.provider == "dummy_agent"
+    assert record.bypass_flags == ["--dangerous"]
+    assert record.security_boundary == "container_isolation"
+    assert record.node_name == "test-node"

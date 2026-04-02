@@ -598,6 +598,30 @@ def test_codex_provider_builds_expected_command_without_system_prompt() -> None:
     assert command[-1] == "fix tests"
 
 
+def test_codex_provider_reports_bypass_flag_audit_metadata() -> None:
+    provider = CodexProvider()
+    runtime = ResolvedRuntime(
+        provider="codex",
+        version="0.0.1",
+        install_dir=Path("/tmp/codex"),
+        executable_path=Path("/tmp/codex/bin/codex"),
+        package_name=provider.package_name,
+    )
+
+    command = provider.build_command(runtime, prompt="fix tests")
+    metadata = provider.execution_audit_metadata(
+        runtime,
+        command=command,
+        working_directory=Path("/tmp/worktree"),
+    )
+
+    assert metadata is not None
+    assert metadata["event"] == "external_agent_bypass_flags_used"
+    assert metadata["provider"] == "codex"
+    assert metadata["bypass_flags"] == ["--dangerously-bypass-approvals-and-sandbox"]
+    assert metadata["security_boundary"] == "container_isolation"
+
+
 def test_codex_provider_renders_login_instructions() -> None:
     provider = CodexProvider()
     runtime = ResolvedRuntime(

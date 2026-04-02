@@ -3,7 +3,7 @@
 from __future__ import annotations
 from pathlib import Path
 import pytest
-from orcheo.external_agents.models import AuthStatus
+from orcheo.external_agents.models import AuthStatus, ResolvedRuntime
 from orcheo.external_agents.providers.base import NpmCliProvider
 
 
@@ -68,6 +68,26 @@ def test_build_environment_without_overrides_uses_process_environment(
     merged = provider.build_environment()
 
     assert merged["BASE_ONLY"] == "1"
+
+
+def test_execution_audit_metadata_defaults_to_none(tmp_path: Path) -> None:
+    provider = DummyProvider()
+    runtime = ResolvedRuntime(
+        provider=provider.name,
+        version="1.2.3",
+        install_dir=tmp_path,
+        executable_path=tmp_path / "bin" / "dummy-cli",
+        package_name=provider.package_name,
+    )
+
+    assert (
+        provider.execution_audit_metadata(
+            runtime=runtime,
+            command=["dummy-cli", "run"],
+            working_directory=tmp_path,
+        )
+        is None
+    )
 
 
 def test_authenticated_if_env_var_present(tmp_path: Path) -> None:

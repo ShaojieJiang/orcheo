@@ -3,8 +3,12 @@
 from __future__ import annotations
 from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 from orcheo.external_agents.models import AuthProbeResult, ResolvedRuntime
 from orcheo.external_agents.providers.base import NpmCliProvider
+
+
+CODEX_CONTAINER_BYPASS_FLAGS = ("--dangerously-bypass-approvals-and-sandbox",)
 
 
 class CodexProvider(NpmCliProvider):
@@ -90,13 +94,41 @@ class CodexProvider(NpmCliProvider):
             combined_prompt = (
                 f"System instructions:\n{system_prompt.strip()}\n\nTask:\n{prompt}"
             )
+        # These bypass flags are only for managed container workers where the
+        # container and validated worktree provide the security boundary.
         return [
             str(runtime.executable_path),
             "exec",
-            "--dangerously-bypass-approvals-and-sandbox",
+            *CODEX_CONTAINER_BYPASS_FLAGS,
             "--skip-git-repo-check",
             combined_prompt,
         ]
+
+    def execution_audit_metadata(
+        self,
+        runtime: ResolvedRuntime,
+        *,
+        command: list[str],
+        working_directory: Path | None = None,
+    ) -> dict[str, Any] | None:
+        """Return structured audit metadata when container bypass flags are used."""
+        used_bypass_flags = [
+            flag for flag in CODEX_CONTAINER_BYPASS_FLAGS if flag in command
+        ]
+        if not used_bypass_flags:
+            return None  # pragma: no cover
+        return {
+            "event": "external_agent_bypass_flags_used",
+            "provider": self.name,
+            "runtime_version": runtime.version,
+            "command_path": str(runtime.executable_path),
+            "working_directory": (
+                str(working_directory) if working_directory is not None else None
+            ),
+            "bypass_flags": used_bypass_flags,
+            "security_boundary": "container_isolation",
+            "security_boundary_detail": "validated_worktree_inside_managed_container",
+        }
 
     def render_login_instructions(self, runtime: ResolvedRuntime) -> list[str]:
         """Render manual Codex login commands for setup-needed failures."""
