@@ -83,6 +83,7 @@ services:
     env_file: .env
     volumes:
       - .:/app
+      - .:/workspace/agents
       - orcheo_data:/data
       - worker_venv:/app/.venv
       - uv_cache:/root/.cache/uv

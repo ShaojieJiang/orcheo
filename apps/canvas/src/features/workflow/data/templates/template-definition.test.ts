@@ -68,10 +68,10 @@ describe("template compatibility", () => {
     expect(claudeTemplate!.workflow.name).toBe("Claude Code Agent");
     expect(codexTemplate!.workflow.name).toBe("Codex Agent");
     expect(claudeTemplate!.runnableConfig?.configurable).toEqual({
-      working_directory: "/app",
+      working_directory: "/workspace/agents",
     });
     expect(codexTemplate!.runnableConfig?.configurable).toEqual({
-      working_directory: "/app",
+      working_directory: "/workspace/agents",
     });
   });
 

@@ -41,6 +41,13 @@ class ExternalAgentNode(TaskNode):
         default=None,
         description="Git worktree path the agent should run inside.",
     )
+    auto_init_git_worktree: bool = Field(
+        default=True,
+        description=(
+            "Initialize a Git worktree in the working directory when the path is "
+            "safe but not yet inside one."
+        ),
+    )
     timeout_seconds: int = Field(
         default=1800,
         ge=1,
@@ -112,7 +119,8 @@ class ExternalAgentNode(TaskNode):
             prompt = self._resolve_prompt(state)
             working_directory_input = self._resolve_working_directory_input(state)
             working_directory = manager.validate_working_directory(
-                working_directory_input
+                working_directory_input,
+                auto_init_git_worktree=self.auto_init_git_worktree,
             )
         except (ValueError, WorkingDirectoryValidationError) as exc:
             return {

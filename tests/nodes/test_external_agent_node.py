@@ -79,8 +79,15 @@ class FakeRuntimeManager:
         self.raise_validate_error = raise_validate_error
         self.mark_auth_called = False
         self.environment: dict[str, str] = {}
+        self.auto_init_git_worktree: bool | None = None
 
-    def validate_working_directory(self, candidate: str | Path) -> Path:
+    def validate_working_directory(
+        self,
+        candidate: str | Path,
+        *,
+        auto_init_git_worktree: bool = False,
+    ) -> Path:
+        self.auto_init_git_worktree = auto_init_git_worktree
         if self.raise_validate_error:
             raise WorkingDirectoryValidationError("invalid workspace")
         return Path(candidate)
@@ -255,6 +262,73 @@ async def test_run_invalid_configuration_when_working_directory_invalid(
 
     assert result["reason"] == "invalid_configuration"
     assert "invalid workspace" in result["message"]
+
+
+@pytest.mark.asyncio
+async def test_run_auto_initializes_git_worktree_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    resolution = _make_runtime_resolution(tmp_path)
+    manager = FakeRuntimeManager(
+        provider=DummyProvider(),
+        resolution=resolution,
+    )
+    node = _make_node(manager)
+    state = _make_state({"prompt": "run"})
+
+    async def fake_execute(*args: object, **kwargs: object) -> ProcessExecutionResult:
+        return ProcessExecutionResult(
+            command=["dummy"],
+            stdout="ok",
+            stderr="",
+            exit_code=0,
+            timed_out=False,
+            duration_seconds=0,
+        )
+
+    monkeypatch.setattr(
+        "orcheo.nodes.external_agent.execute_process",
+        fake_execute,
+    )
+
+    await node.run(state, RunnableConfig())
+
+    assert manager.auto_init_git_worktree is True
+
+
+@pytest.mark.asyncio
+async def test_run_can_disable_auto_init_git_worktree(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    resolution = _make_runtime_resolution(tmp_path)
+    manager = FakeRuntimeManager(
+        provider=DummyProvider(),
+        resolution=resolution,
+    )
+    node = _make_node(manager)
+    node.auto_init_git_worktree = False
+    state = _make_state({"prompt": "run"})
+
+    async def fake_execute(*args: object, **kwargs: object) -> ProcessExecutionResult:
+        return ProcessExecutionResult(
+            command=["dummy"],
+            stdout="ok",
+            stderr="",
+            exit_code=0,
+            timed_out=False,
+            duration_seconds=0,
+        )
+
+    monkeypatch.setattr(
+        "orcheo.nodes.external_agent.execute_process",
+        fake_execute,
+    )
+
+    await node.run(state, RunnableConfig())
+
+    assert manager.auto_init_git_worktree is False
 
 
 @pytest.mark.asyncio

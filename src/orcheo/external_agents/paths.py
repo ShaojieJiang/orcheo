@@ -64,24 +64,30 @@ def provider_staging_dir(runtime_root: Path, provider: str) -> Path:
     return provider_root(runtime_root, provider) / STAGING_DIR_NAME
 
 
-def validate_working_directory(
-    candidate: str | Path,
-    *,
-    runtime_root: Path,
-    home_directory: Path | None = None,
-) -> Path:
-    """Validate a requested working directory for external agent execution."""
-    resolved = Path(candidate).expanduser().resolve(strict=True)
-    runtime_root_resolved = runtime_root.expanduser().resolve()
-    home_resolved = (
-        home_directory.expanduser().resolve()
-        if home_directory is not None
-        else Path.home().resolve()
-    )
+def _run_git_command(directory: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    """Run a git command for working-directory validation."""
+    try:
+        return subprocess.run(
+            ["git", "-C", str(directory), *args],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError as exc:
+        msg = (
+            "Git is required to validate external-agent working directories, but "
+            "the 'git' executable is not available in this environment."
+        )
+        raise WorkingDirectoryValidationError(msg) from exc
 
-    if not resolved.is_dir():
-        msg = f"Working directory '{resolved}' is not a directory."
-        raise WorkingDirectoryValidationError(msg)
+
+def _assert_safe_working_directory(
+    resolved: Path,
+    *,
+    runtime_root_resolved: Path,
+    home_resolved: Path,
+) -> None:
+    """Reject unsafe working-directory targets before any git operations."""
     if resolved == Path(resolved.root):
         msg = "Refusing to run an external agent against '/'."
         raise WorkingDirectoryValidationError(msg)
@@ -94,24 +100,78 @@ def validate_working_directory(
         msg = "Refusing to run an external agent inside the managed runtime root."
         raise WorkingDirectoryValidationError(msg)
 
-    try:
-        git_check = subprocess.run(
-            ["git", "-C", str(resolved), "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    except FileNotFoundError as exc:
-        msg = (
-            "Git is required to validate external-agent working directories, but "
-            "the 'git' executable is not available in this environment."
-        )
-        raise WorkingDirectoryValidationError(msg) from exc
-    if git_check.returncode != 0:
-        msg = (
-            f"Working directory '{resolved}' must be a Git worktree root or a "
-            "descendant inside a Git worktree."
-        )
+
+def _ensure_directory_exists(resolved: Path, *, auto_init_git_worktree: bool) -> None:
+    """Create or validate the requested working directory before git checks."""
+    if resolved.exists():
+        if not resolved.is_dir():
+            msg = f"Working directory '{resolved}' is not a directory."
+            raise WorkingDirectoryValidationError(msg)
+        return
+    if not auto_init_git_worktree:
+        msg = f"Working directory '{resolved}' does not exist."
         raise WorkingDirectoryValidationError(msg)
+    try:
+        resolved.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        msg = f"Unable to create working directory '{resolved}': {exc}"
+        raise WorkingDirectoryValidationError(msg) from exc
+
+
+def _ensure_git_worktree(resolved: Path, *, auto_init_git_worktree: bool) -> None:
+    """Require a git worktree, optionally initializing one in place."""
+    git_check = _run_git_command(resolved, "rev-parse", "--show-toplevel")
+    if git_check.returncode == 0:
+        return
+    if auto_init_git_worktree:
+        init_result = _run_git_command(
+            resolved,
+            "init",
+            "--quiet",
+            "--initial-branch=main",
+        )
+        if init_result.returncode != 0:
+            msg = f"Failed to initialize a Git worktree in '{resolved}'."
+            raise WorkingDirectoryValidationError(msg)
+        git_check = _run_git_command(resolved, "rev-parse", "--show-toplevel")
+        if git_check.returncode == 0:
+            return
+    msg = (
+        f"Working directory '{resolved}' must be a Git worktree root or a "
+        "descendant inside a Git worktree."
+    )
+    raise WorkingDirectoryValidationError(msg)
+
+
+def validate_working_directory(
+    candidate: str | Path,
+    *,
+    runtime_root: Path,
+    home_directory: Path | None = None,
+    auto_init_git_worktree: bool = False,
+) -> Path:
+    """Validate a requested working directory for external agent execution."""
+    candidate_path = Path(candidate).expanduser()
+    resolved = candidate_path.resolve(strict=not auto_init_git_worktree)
+    runtime_root_resolved = runtime_root.expanduser().resolve()
+    home_resolved = (
+        home_directory.expanduser().resolve()
+        if home_directory is not None
+        else Path.home().resolve()
+    )
+
+    _assert_safe_working_directory(
+        resolved,
+        runtime_root_resolved=runtime_root_resolved,
+        home_resolved=home_resolved,
+    )
+    _ensure_directory_exists(
+        resolved,
+        auto_init_git_worktree=auto_init_git_worktree,
+    )
+    _ensure_git_worktree(
+        resolved,
+        auto_init_git_worktree=auto_init_git_worktree,
+    )
 
     return resolved
