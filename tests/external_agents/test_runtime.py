@@ -255,6 +255,34 @@ def test_validate_working_directory_auto_initializes_git_repo(
     assert git_dir.is_dir()
 
 
+def test_validate_working_directory_wraps_mkdir_errors_as_validation_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Auto-init directory creation failures are surfaced as validation errors."""
+    runtime_root = tmp_path / "agent-runtimes"
+    runtime_root.mkdir()
+    plain_dir = tmp_path / "plain"
+
+    def _raise_permission_error(self: Path, *args: object, **kwargs: object) -> None:
+        if self == plain_dir:
+            raise PermissionError("Permission denied")
+        return original_mkdir(self, *args, **kwargs)
+
+    original_mkdir = Path.mkdir
+    monkeypatch.setattr(Path, "mkdir", _raise_permission_error)
+
+    with pytest.raises(
+        WorkingDirectoryValidationError,
+        match="Unable to create working directory",
+    ):
+        validate_working_directory(
+            plain_dir,
+            runtime_root=runtime_root,
+            auto_init_git_worktree=True,
+        )
+
+
 def test_validate_working_directory_surfaces_missing_git(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

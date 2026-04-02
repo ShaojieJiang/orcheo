@@ -111,7 +111,11 @@ def _ensure_directory_exists(resolved: Path, *, auto_init_git_worktree: bool) ->
     if not auto_init_git_worktree:
         msg = f"Working directory '{resolved}' does not exist."
         raise WorkingDirectoryValidationError(msg)
-    resolved.mkdir(parents=True, exist_ok=True)
+    try:
+        resolved.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        msg = f"Unable to create working directory '{resolved}': {exc}"
+        raise WorkingDirectoryValidationError(msg) from exc
 
 
 def _ensure_git_worktree(resolved: Path, *, auto_init_git_worktree: bool) -> None:
