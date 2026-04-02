@@ -53,7 +53,11 @@ class CodexProvider(NpmCliProvider):
                 "export CODEX_API_KEY=<api-key>",
             ],
             environ=environ,
-            env_var_names=("CODEX_API_KEY", "OPENAI_API_KEY"),
+            env_var_names=(
+                "CODEX_API_KEY",
+                "OPENAI_API_KEY",
+                self.auth_json_env_var,
+            ),
             auth_files=self._auth_file_candidates(environ),
         )
 

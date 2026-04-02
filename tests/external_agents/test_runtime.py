@@ -607,6 +607,12 @@ def test_provider_version_parsing_and_auth_probes(
     missing_codex = codex.probe_auth(runtime, environ={})
     assert missing_codex.status == AuthStatus.SETUP_NEEDED
 
+    env_auth_json_codex = codex.probe_auth(
+        runtime,
+        environ={"CODEX_AUTH_JSON": '{"auth_mode":"chatgpt"}'},
+    )
+    assert env_auth_json_codex.status == AuthStatus.AUTHENTICATED
+
     auth_dir = tmp_path / ".codex"
     auth_dir.mkdir(exist_ok=True)
     (auth_dir / "auth.json").write_text("{}", encoding="utf-8")
