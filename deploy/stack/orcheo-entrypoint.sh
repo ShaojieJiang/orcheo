@@ -21,25 +21,30 @@ uv_cache_dir="${UV_CACHE_DIR:-/data/cache/uv}"
 
 ensure_dir() {
   dir_path="$1"
+  recursive="${2:-false}"
   if [ -z "$dir_path" ]; then
     return
   fi
   mkdir -p "$dir_path"
-  chown "$runtime_user:$runtime_group" "$dir_path"
+  if [ "$recursive" = "true" ]; then
+    chown -R "$runtime_user:$runtime_group" "$dir_path"
+  else
+    chown "$runtime_user:$runtime_group" "$dir_path"
+  fi
 }
 
 if [ "$(id -u)" -eq 0 ]; then
   ensure_dir /data
-  ensure_dir "$HOME"
-  ensure_dir "$codex_home"
-  ensure_dir "$claude_home"
-  ensure_dir "$runtime_root"
-  ensure_dir "$cache_dir"
-  ensure_dir "$plugin_dir"
-  ensure_dir "$uv_cache_dir"
+  ensure_dir "$HOME" true
+  ensure_dir "$codex_home" true
+  ensure_dir "$claude_home" true
+  ensure_dir "$runtime_root" true
+  ensure_dir "$cache_dir" true
+  ensure_dir "$plugin_dir" true
+  ensure_dir "$uv_cache_dir" true
 
   if [ -d /app/.venv ] || [ ! -e /app/.venv ]; then
-    ensure_dir /app/.venv
+    ensure_dir /app/.venv true
   fi
 
   exec gosu "$runtime_user:$runtime_group" "$@"
