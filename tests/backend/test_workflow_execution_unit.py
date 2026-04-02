@@ -280,7 +280,12 @@ async def test_execute_workflow_reports_history_store_failure(
     history_store.mark_completed = AsyncMock()
     monkeypatch.setattr(workflow_execution, "get_history_store", lambda: history_store)
     monkeypatch.setattr(workflow_execution, "get_settings", lambda: {"dummy": True})
-    monkeypatch.setattr(workflow_execution, "get_vault", lambda: object())
+
+    class DummyVault:
+        def list_all_credentials(self) -> list[Any]:
+            return []
+
+    monkeypatch.setattr(workflow_execution, "get_vault", lambda: DummyVault())
     monkeypatch.setattr(
         workflow_execution, "credential_context_from_workflow", lambda _: {}
     )
@@ -685,6 +690,45 @@ async def test_run_workflow_stream_handles_failure(
 
 
 @pytest.mark.asyncio
+async def test_run_workflow_stream_reports_history_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    history_store = AsyncMock()
+    emit_update = AsyncMock()
+    reports: list[tuple[str, Any, Exception, str]] = []
+    span = SimpleNamespace()
+    tracer = SimpleNamespace()
+    run_error = RunHistoryError("history unavailable")
+
+    monkeypatch.setattr(
+        workflow_execution,
+        "_stream_workflow_updates",
+        AsyncMock(side_effect=run_error),
+    )
+    monkeypatch.setattr(
+        workflow_execution,
+        "_report_history_error",
+        lambda execution_id, span_arg, exc_arg, *, context: reports.append(
+            (execution_id, span_arg, exc_arg, context)
+        ),
+    )
+
+    with pytest.raises(RunHistoryError):
+        await workflow_execution._run_workflow_stream(
+            compiled_graph=object(),
+            state={},
+            config={},
+            history_store=history_store,
+            execution_id="exec-history",
+            websocket=emit_update,
+            tracer=tracer,
+            span=span,
+        )
+
+    assert reports == [("exec-history", span, run_error, "persist workflow history")]
+
+
+@pytest.mark.asyncio
 async def test_persist_failure_history_marks_run_failed() -> None:
     history_store = AsyncMock()
 
@@ -715,7 +759,12 @@ async def test_execute_workflow_completes_for_invalid_workflow_id(
 
     monkeypatch.setattr(workflow_execution, "get_settings", lambda: {})
     monkeypatch.setattr(workflow_execution, "get_history_store", lambda: history_store)
-    monkeypatch.setattr(workflow_execution, "get_vault", lambda: object())
+
+    class DummyVault:
+        def list_all_credentials(self) -> list[Any]:
+            return []
+
+    monkeypatch.setattr(workflow_execution, "get_vault", lambda: DummyVault())
     monkeypatch.setattr(
         workflow_execution,
         "credential_context_from_workflow",

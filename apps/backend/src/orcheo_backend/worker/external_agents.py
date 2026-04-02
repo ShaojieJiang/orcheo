@@ -15,10 +15,17 @@ import warnings
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 from orcheo.external_agents import ExternalAgentRuntimeManager, RuntimeInstallError
 from orcheo.external_agents.models import ResolvedRuntime
-from orcheo_backend.app.dependencies import get_external_agent_runtime_store
+from orcheo_backend.app.dependencies import get_external_agent_runtime_store, get_vault
+from orcheo_backend.app.external_agent_auth import (
+    CLAUDE_CODE_OAUTH_TOKEN_CREDENTIAL_NAME,
+    CODEX_AUTH_JSON_CREDENTIAL_NAME,
+    load_external_agent_vault_environment,
+    upsert_external_agent_secret,
+)
 from orcheo_backend.app.external_agent_runtime_store import (
     default_external_agent_status,
     is_terminal_login_state,
@@ -90,7 +97,53 @@ def _worker_provider_environment(runtime_store: object) -> dict[str, str]:
         merged.update(
             runtime_store.get_provider_environment(provider_name)  # type: ignore[attr-defined]
         )
+    merged.update(load_external_agent_vault_environment(get_vault()))
     return merged
+
+
+def _codex_auth_file_path(environ: Mapping[str, str]) -> Path:
+    """Return the worker-local auth.json path for Codex."""
+    codex_home = environ.get("CODEX_HOME", "").strip()
+    if codex_home:
+        return Path(codex_home).expanduser() / "auth.json"
+    return Path("~/.codex/auth.json").expanduser()
+
+
+def _persist_claude_oauth_token_to_vault(token: str) -> None:
+    """Persist a Claude OAuth token to the unrestricted worker vault."""
+    upsert_external_agent_secret(
+        get_vault(),
+        credential_name=CLAUDE_CODE_OAUTH_TOKEN_CREDENTIAL_NAME,
+        provider="claude_code",
+        secret=token,
+    )
+
+
+def _persist_codex_auth_json_to_vault(environ: Mapping[str, str]) -> None:
+    """Persist the current worker Codex auth.json content to the vault."""
+    auth_file = _codex_auth_file_path(environ)
+    if not auth_file.exists():
+        return
+    upsert_external_agent_secret(
+        get_vault(),
+        credential_name=CODEX_AUTH_JSON_CREDENTIAL_NAME,
+        provider="codex",
+        secret=auth_file.read_text(encoding="utf-8"),
+    )
+
+
+def _sync_authenticated_provider_to_vault(
+    provider_id: ExternalAgentProviderName,
+    environ: Mapping[str, str],
+) -> None:
+    """Persist restorable auth material for an already-authenticated provider."""
+    if provider_id == ExternalAgentProviderName.CLAUDE_CODE:
+        token = environ.get("CLAUDE_CODE_OAUTH_TOKEN", "").strip()
+        if token:  # pragma: no branch
+            _persist_claude_oauth_token_to_vault(token)
+        return
+    if provider_id == ExternalAgentProviderName.CODEX:  # pragma: no branch
+        _persist_codex_auth_json_to_vault(environ)
 
 
 def _trim_recent_output(output: str) -> str:
@@ -605,25 +658,6 @@ def _browser_login_detail(provider_name: ExternalAgentProviderName) -> str:
     return "Complete the browser sign-in to finish connecting the worker."
 
 
-def _clear_stored_claude_oauth_token(
-    manager: ExternalAgentRuntimeManager,
-    runtime_store: object,
-) -> None:
-    """Remove any persisted Claude OAuth token before starting a fresh login."""
-    manager.save_provider_environment(
-        ExternalAgentProviderName.CLAUDE_CODE.value,
-        {"CLAUDE_CODE_OAUTH_TOKEN": ""},
-    )
-    shared_environ = runtime_store.get_provider_environment(  # type: ignore[attr-defined]
-        ExternalAgentProviderName.CLAUDE_CODE
-    )
-    shared_environ.pop("CLAUDE_CODE_OAUTH_TOKEN", None)
-    runtime_store.save_provider_environment(  # type: ignore[attr-defined]
-        ExternalAgentProviderName.CLAUDE_CODE,
-        shared_environ,
-    )
-
-
 def _last_auth_ok_at(manifest: object | None) -> datetime | None:
     """Return the stored last-auth timestamp when a manifest is present."""
     return getattr(manifest, "last_auth_ok_at", None)
@@ -757,6 +791,7 @@ async def refresh_external_agent_status_async(provider_name: str) -> dict[str, s
 
         probe = provider.probe_auth(runtime, environ=provider_environ)
         if probe.authenticated:
+            _sync_authenticated_provider_to_vault(provider_id, provider_environ)
             manifest = manager.mark_auth_success(provider_name)
             _save_ready_provider_status(
                 runtime_store,
@@ -806,8 +841,6 @@ async def start_external_agent_login_async(  # noqa: C901, PLR0915
     session = runtime_store.get_login_session(session_id)
     if session is None:
         return {"status": "missing_session"}
-    if provider_id == ExternalAgentProviderName.CLAUDE_CODE:
-        _clear_stored_claude_oauth_token(manager, runtime_store)
 
     def save_session(
         state: ExternalAgentLoginSessionState,
@@ -889,6 +922,7 @@ async def start_external_agent_login_async(  # noqa: C901, PLR0915
         provider_environ = manager.environment_for_provider(provider_name)
         probe = provider.probe_auth(runtime, environ=provider_environ)
         if probe.authenticated:
+            _sync_authenticated_provider_to_vault(provider_id, provider_environ)
             manifest = manager.mark_auth_success(provider_name)
             save_authenticated_session(runtime, "Already authenticated on the worker.")
             save_provider_ready(runtime, manifest.last_auth_ok_at)
@@ -966,19 +1000,16 @@ async def start_external_agent_login_async(  # noqa: C901, PLR0915
             on_tick=heartbeat_session,
         )
         if result.auth_token:
-            manager.save_provider_environment(
-                provider_name,
-                {"CLAUDE_CODE_OAUTH_TOKEN": result.auth_token},
-            )
-            runtime_store.save_provider_environment(
-                provider_id,
-                {"CLAUDE_CODE_OAUTH_TOKEN": result.auth_token},
-            )
+            _persist_claude_oauth_token_to_vault(result.auth_token)
+            provider_environ["CLAUDE_CODE_OAUTH_TOKEN"] = result.auth_token
+        if provider_id == ExternalAgentProviderName.CODEX:
+            _persist_codex_auth_json_to_vault(provider_environ)
         probe = provider.probe_auth(
             runtime,
-            environ=manager.environment_for_provider(provider_name),
+            environ=provider_environ,
         )
         if probe.authenticated:
+            _sync_authenticated_provider_to_vault(provider_id, provider_environ)
             manifest = manager.mark_auth_success(provider_name)
             save_session(
                 ExternalAgentLoginSessionState.AUTHENTICATED,

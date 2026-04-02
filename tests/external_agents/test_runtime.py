@@ -486,6 +486,25 @@ def test_codex_provider_build_environment_creates_codex_home(
     assert environ["CODEX_API_KEY"] == "test-openai-key"
 
 
+def test_codex_provider_build_environment_restores_auth_json(
+    tmp_path: Path,
+) -> None:
+    """Vault-sourced auth.json should be restored before Codex auth probes."""
+    provider = CodexProvider()
+    codex_home = tmp_path / "codex-home"
+
+    provider.build_environment(
+        {
+            "CODEX_HOME": str(codex_home),
+            "CODEX_AUTH_JSON": '{"auth_mode":"chatgpt"}',
+        }
+    )
+
+    assert (codex_home / "auth.json").read_text(encoding="utf-8") == (
+        '{"auth_mode":"chatgpt"}'
+    )
+
+
 def test_claude_provider_uses_setup_token_login() -> None:
     """Claude provider should use setup-token for worker login flows."""
     provider = ClaudeCodeProvider()
@@ -588,8 +607,14 @@ def test_provider_version_parsing_and_auth_probes(
     missing_codex = codex.probe_auth(runtime, environ={})
     assert missing_codex.status == AuthStatus.SETUP_NEEDED
 
+    env_auth_json_codex = codex.probe_auth(
+        runtime,
+        environ={"CODEX_AUTH_JSON": '{"auth_mode":"chatgpt"}'},
+    )
+    assert env_auth_json_codex.status == AuthStatus.AUTHENTICATED
+
     auth_dir = tmp_path / ".codex"
-    auth_dir.mkdir()
+    auth_dir.mkdir(exist_ok=True)
     (auth_dir / "auth.json").write_text("{}", encoding="utf-8")
     cached_codex = codex.probe_auth(runtime, environ={})
     assert cached_codex.status == AuthStatus.AUTHENTICATED

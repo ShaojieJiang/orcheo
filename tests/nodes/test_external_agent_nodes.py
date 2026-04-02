@@ -3,12 +3,14 @@
 from __future__ import annotations
 import subprocess
 from pathlib import Path
+from typing import Any
 import pytest
 from orcheo.external_agents.runtime import ExternalAgentRuntimeManager
 from orcheo.graph.state import State
 from orcheo.nodes.claude_code import ClaudeCodeNode
 from orcheo.nodes.codex import CodexNode
 from orcheo.nodes.registry import registry
+from orcheo.runtime.credentials import CredentialReferenceNotFoundError
 from orcheo.tracing.model_metadata import TRACE_METADATA_KEY
 from tests.external_agents.test_runtime import FakeProvider
 
@@ -136,6 +138,76 @@ async def test_codex_node_normalizes_timeout_failures(
     assert payload["status"] == "failed"
     assert payload["reason"] == "timeout"
     assert payload["message"] == "codex timed out after 1 seconds."
+
+
+def test_claude_node_auth_environment_overrides_returns_token() -> None:
+    node = ClaudeCodeNode(
+        name="claude_overrides",
+        prompt="cleanup",
+        working_directory=".",
+        auth_token="sk-ant-FOO",
+    )
+
+    assert node.auth_environment_overrides() == {
+        "CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-FOO"
+    }
+
+
+def test_claude_node_auth_environment_overrides_skips_empty_token() -> None:
+    node = ClaudeCodeNode(
+        name="claude_overrides",
+        prompt="cleanup",
+        working_directory=".",
+    )
+    node.auth_token = None
+
+    assert node.auth_environment_overrides() == {}
+
+
+def test_codex_node_auth_environment_overrides_returns_json() -> None:
+    node = CodexNode(
+        name="codex_overrides",
+        prompt="cleanup",
+        working_directory=".",
+        auth_json='{"hello": "world"}',
+    )
+
+    assert node.auth_environment_overrides() == {
+        "CODEX_AUTH_JSON": '{"hello": "world"}'
+    }
+
+
+def test_codex_node_auth_environment_overrides_skips_empty_json() -> None:
+    node = CodexNode(
+        name="codex_overrides",
+        prompt="cleanup",
+        working_directory=".",
+    )
+    node.auth_json = None
+
+    assert node.auth_environment_overrides() == {}
+
+
+def test_compute_run_updates_raises_on_non_optional_credential_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    node = ClaudeCodeNode(
+        name="claude_runs",
+        prompt="cleanup",
+        working_directory=".",
+    )
+    state = State({"inputs": {}, "results": {}})
+    error = CredentialReferenceNotFoundError("missing")
+
+    def failing_decode(value: Any, _: State) -> Any:
+        if value is node.prompt:
+            raise error
+        return value
+
+    monkeypatch.setattr(node, "_decode_value", failing_decode)
+
+    with pytest.raises(CredentialReferenceNotFoundError):
+        node._compute_run_updates(state)
 
 
 def test_external_agent_nodes_registered() -> None:

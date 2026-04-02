@@ -40,6 +40,9 @@ from orcheo_backend.app.dependencies import (
     get_history_store,
     get_vault,
 )
+from orcheo_backend.app.external_agent_auth import (
+    load_external_agent_vault_environment,
+)
 from orcheo_backend.app.external_agent_runtime_store import (
     list_external_agent_providers,
 )
@@ -121,6 +124,7 @@ def _external_agent_provider_environment() -> dict[str, str]:
     merged: dict[str, str] = {}
     for provider_name in list_external_agent_providers():
         merged.update(runtime_store.get_provider_environment(provider_name))
+    merged.update(load_external_agent_vault_environment(get_vault()))
     return merged
 
 

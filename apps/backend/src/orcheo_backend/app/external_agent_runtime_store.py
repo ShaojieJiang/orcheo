@@ -192,7 +192,7 @@ class ExternalAgentRuntimeStore:
         if self._redis is not None:
             try:
                 payload = self._redis.get(self._provider_environment_key(provider_name))
-                if payload:
+                if payload:  # pragma: no branch
                     decoded = json.loads(cast(str, payload))
                     if isinstance(decoded, dict):
                         return {

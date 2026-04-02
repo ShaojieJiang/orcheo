@@ -6,6 +6,11 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 import pytest
+from orcheo.vault import InMemoryCredentialVault
+from orcheo_backend.app.external_agent_auth import (
+    CLAUDE_CODE_OAUTH_TOKEN_CREDENTIAL_NAME,
+    CODEX_AUTH_JSON_CREDENTIAL_NAME,
+)
 from orcheo_backend.app.external_agent_runtime_store import ExternalAgentRuntimeStore
 from orcheo_backend.app.schemas.system import (
     ExternalAgentLoginSession,
@@ -658,19 +663,28 @@ def test_run_login_command_handles_forced_awaiting_state_without_consumer(
 
 
 @pytest.mark.asyncio
-async def test_start_login_clears_stale_claude_oauth_token_before_probe(
+async def test_start_login_uses_claude_oauth_token_from_vault_before_browser_flow(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Explicit Claude login should clear a stale stored OAuth token first."""
+    """Stored Claude worker auth should skip the interactive login flow."""
     from orcheo.external_agents.models import (
         AuthProbeResult,
         AuthStatus,
         ResolvedRuntime,
+        RuntimeManifest,
     )
     from orcheo_backend.worker.external_agents import start_external_agent_login_async
 
     store = ExternalAgentRuntimeStore()
     store._redis = None
+    vault = InMemoryCredentialVault()
+    vault.create_credential(
+        name=CLAUDE_CODE_OAUTH_TOKEN_CREDENTIAL_NAME,
+        provider="claude_code",
+        scopes=["worker"],
+        secret="sk-ant-from-vault",
+        actor="tester",
+    )
     now = datetime.now(UTC)
     session = ExternalAgentLoginSession(
         session_id="fresh-claude-login",
@@ -681,14 +695,14 @@ async def test_start_login_clears_stale_claude_oauth_token_before_probe(
         updated_at=now,
     )
     store.save_login_session(session)
-    store.save_provider_environment(
-        ExternalAgentProviderName.CLAUDE_CODE,
-        {"CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-stale-token"},
-    )
 
     monkeypatch.setattr(
         "orcheo_backend.worker.external_agents.get_external_agent_runtime_store",
         lambda: store,
+    )
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.get_vault",
+        lambda: vault,
     )
 
     runtime = ResolvedRuntime(
@@ -698,40 +712,43 @@ async def test_start_login_clears_stale_claude_oauth_token_before_probe(
         executable_path=Path("/root/.orcheo/agent-runtimes/claude"),
         package_name="@anthropic-ai/claude-code",
     )
-    provider = MagicMock()
-    provider.probe_auth.return_value = AuthProbeResult(
-        status=AuthStatus.SETUP_NEEDED,
-        message="login required",
+    manifest = RuntimeManifest(
+        provider="claude_code",
+        provider_root=Path("/root/.orcheo/agent-runtimes/claude_code"),
     )
+    provider = MagicMock()
+    provider.probe_auth.return_value = AuthProbeResult(status=AuthStatus.AUTHENTICATED)
     provider.oauth_login_command.return_value = ["/root/.orcheo/agent-runtimes/claude"]
 
     manager = MagicMock()
     manager.get_provider.return_value = provider
-    manager.inspect_runtime.return_value = (runtime, None)
-    manager.environment_for_provider.return_value = {}
+    manager.inspect_runtime.return_value = (runtime, manifest)
+    manager.environment_for_provider.return_value = {
+        "CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-from-vault"
+    }
+    manager.mark_auth_success.return_value = MagicMock(last_auth_ok_at=now)
+    captured_manager_kwargs: dict[str, object] = {}
     monkeypatch.setattr(
         "orcheo_backend.worker.external_agents.ExternalAgentRuntimeManager",
-        lambda **kwargs: manager,
+        lambda **kwargs: captured_manager_kwargs.update(kwargs) or manager,
     )
+    run_login = MagicMock()
     monkeypatch.setattr(
         "orcheo_backend.worker.external_agents._run_login_command",
-        lambda *args, **kwargs: MagicMock(
-            auth_token=None,
-            auth_url=None,
-            device_code=None,
-            output="",
-            timed_out=True,
-        ),
+        run_login,
     )
 
     result = await start_external_agent_login_async("claude_code", "fresh-claude-login")
 
-    assert result == {"status": "timed_out"}
-    manager.save_provider_environment.assert_called_once_with(
-        "claude_code",
-        {"CLAUDE_CODE_OAUTH_TOKEN": ""},
+    assert result == {"status": "ready"}
+    run_login.assert_not_called()
+    assert captured_manager_kwargs["environ"] == {
+        "CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-from-vault"
+    }
+    provider.probe_auth.assert_called_once_with(
+        runtime,
+        environ={"CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-from-vault"},
     )
-    assert store.get_provider_environment(ExternalAgentProviderName.CLAUDE_CODE) == {}
 
 
 @pytest.mark.asyncio
@@ -1157,6 +1174,7 @@ async def test_start_login_persists_worker_updates_and_auth_token(
 
     store = ExternalAgentRuntimeStore()
     store._redis = None
+    vault = InMemoryCredentialVault()
     now = datetime.now(UTC)
     session = ExternalAgentLoginSession(
         session_id="claude-auth",
@@ -1171,6 +1189,10 @@ async def test_start_login_persists_worker_updates_and_auth_token(
     monkeypatch.setattr(
         "orcheo_backend.worker.external_agents.get_external_agent_runtime_store",
         lambda: store,
+    )
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.get_vault",
+        lambda: vault,
     )
 
     runtime = ResolvedRuntime(
@@ -1246,11 +1268,88 @@ async def test_start_login_persists_worker_updates_and_auth_token(
     assert updated_session.state == ExternalAgentLoginSessionState.AUTHENTICATED
     assert updated_session.auth_url == "https://example.com/auth"
     assert store.get_login_input("claude-auth") is None
-    assert store.get_provider_environment(ExternalAgentProviderName.CLAUDE_CODE) == {
-        "CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-worker"
-    }
+    stored_token = next(
+        item
+        for item in vault.list_all_credentials()
+        if item.name == CLAUDE_CODE_OAUTH_TOKEN_CREDENTIAL_NAME
+    )
+    assert vault.reveal_secret(credential_id=stored_token.id) == "sk-ant-worker"
     status = store.get_provider_status(ExternalAgentProviderName.CLAUDE_CODE)
     assert status.state == ExternalAgentProviderState.READY
+
+
+@pytest.mark.asyncio
+async def test_start_login_backfills_codex_auth_json_into_vault(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo.external_agents.models import (
+        AuthProbeResult,
+        AuthStatus,
+        ResolvedRuntime,
+        RuntimeManifest,
+    )
+    from orcheo_backend.worker.external_agents import start_external_agent_login_async
+
+    store = ExternalAgentRuntimeStore()
+    store._redis = None
+    vault = InMemoryCredentialVault()
+    now = datetime.now(UTC)
+    session = ExternalAgentLoginSession(
+        session_id="codex-ready",
+        provider=ExternalAgentProviderName.CODEX,
+        display_name="Codex",
+        state=ExternalAgentLoginSessionState.PENDING,
+        created_at=now,
+        updated_at=now,
+    )
+    store.save_login_session(session)
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.get_external_agent_runtime_store",
+        lambda: store,
+    )
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.get_vault",
+        lambda: vault,
+    )
+
+    codex_home = tmp_path / "codex-home"
+    codex_home.mkdir()
+    (codex_home / "auth.json").write_text(
+        '{"auth_mode":"chatgpt","OPENAI_API_KEY":null}',
+        encoding="utf-8",
+    )
+    runtime = ResolvedRuntime(
+        provider="codex",
+        version="0.30.0",
+        install_dir=tmp_path / "codex",
+        executable_path=tmp_path / "codex" / "bin" / "codex",
+        package_name="@openai/codex",
+    )
+    manifest = RuntimeManifest(provider="codex", provider_root=tmp_path / "codex")
+    provider = MagicMock()
+    provider.probe_auth.return_value = AuthProbeResult(status=AuthStatus.AUTHENTICATED)
+    manager = MagicMock()
+    manager.get_provider.return_value = provider
+    manager.inspect_runtime.return_value = (runtime, manifest)
+    manager.environment_for_provider.return_value = {"CODEX_HOME": str(codex_home)}
+    manager.mark_auth_success.return_value = MagicMock(last_auth_ok_at=now)
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.ExternalAgentRuntimeManager",
+        lambda **kwargs: manager,
+    )
+
+    result = await start_external_agent_login_async("codex", "codex-ready")
+
+    assert result == {"status": "ready"}
+    stored_auth = next(
+        item
+        for item in vault.list_all_credentials()
+        if item.name == CODEX_AUTH_JSON_CREDENTIAL_NAME
+    )
+    assert vault.reveal_secret(credential_id=stored_auth.id) == (
+        '{"auth_mode":"chatgpt","OPENAI_API_KEY":null}'
+    )
 
 
 @pytest.mark.asyncio
