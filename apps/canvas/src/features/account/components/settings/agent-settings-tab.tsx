@@ -396,7 +396,8 @@ const AgentSettingsTab = () => {
         const showCodexDeviceAuthReminder =
           provider.provider === "codex" &&
           (provider.state === "not_installed" ||
-            provider.state === "needs_login");
+            provider.state === "needs_login") &&
+          !activeSessions[provider.provider];
 
         return (
           <Card key={provider.provider} className="border-border/80">
