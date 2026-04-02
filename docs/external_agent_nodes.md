@@ -69,10 +69,12 @@ Both `ClaudeCodeNode` and `CodexNode` share the same workflow-facing fields:
 - `prompt`
 - `system_prompt`
 - `working_directory`
+- `auto_init_git_worktree`
 - `timeout_seconds`
 
-The `working_directory` must resolve to an existing path inside a Git worktree.
-Orcheo rejects `/`, the worker home directory, and the managed runtime root.
+By default, Orcheo initializes a Git worktree in `working_directory` when the
+path is safe but not yet inside one. Orcheo still rejects `/`, the worker home
+directory, and the managed runtime root.
 
 Normalized node output includes:
 

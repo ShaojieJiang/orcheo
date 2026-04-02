@@ -236,6 +236,25 @@ def test_validate_working_directory_requires_git_and_rejects_runtime_root(
         validate_working_directory(plain_dir, runtime_root=runtime_root)
 
 
+def test_validate_working_directory_auto_initializes_git_repo(
+    tmp_path: Path,
+) -> None:
+    """Auto-init creates a usable Git worktree for safe non-repo directories."""
+    runtime_root = tmp_path / "agent-runtimes"
+    runtime_root.mkdir()
+    plain_dir = tmp_path / "plain"
+
+    validated = validate_working_directory(
+        plain_dir,
+        runtime_root=runtime_root,
+        auto_init_git_worktree=True,
+    )
+
+    assert validated == plain_dir.resolve()
+    git_dir = plain_dir / ".git"
+    assert git_dir.is_dir()
+
+
 def test_validate_working_directory_surfaces_missing_git(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -789,7 +808,7 @@ def test_validate_working_directory_delegates_to_paths_helper(
     expected = tmp_path / "repo"
     monkeypatch.setattr(
         "orcheo.external_agents.runtime.validate_working_directory",
-        lambda candidate, *, runtime_root: expected,
+        lambda candidate, *, runtime_root, auto_init_git_worktree: expected,
     )
 
     assert manager.validate_working_directory("repo") == expected

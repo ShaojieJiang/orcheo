@@ -123,9 +123,18 @@ class ExternalAgentRuntimeManager:
             return True
         return reference_now - last_reference >= self.maintenance_interval
 
-    def validate_working_directory(self, candidate: str | Path) -> Path:
+    def validate_working_directory(
+        self,
+        candidate: str | Path,
+        *,
+        auto_init_git_worktree: bool = False,
+    ) -> Path:
         """Validate a requested execution directory against runtime safety rules."""
-        return validate_working_directory(candidate, runtime_root=self.runtime_root)
+        return validate_working_directory(
+            candidate,
+            runtime_root=self.runtime_root,
+            auto_init_git_worktree=auto_init_git_worktree,
+        )
 
     def inspect_runtime(
         self,

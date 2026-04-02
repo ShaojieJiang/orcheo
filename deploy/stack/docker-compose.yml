@@ -76,6 +76,7 @@ services:
     env_file: .env
     volumes:
       - orcheo_data:/data
+      - ./workspace/agents:/workspace/agents
       - ./chatkit_widgets:/app/examples/chatkit_widgets/widgets:ro
     environment:
       HOME: /data/home
