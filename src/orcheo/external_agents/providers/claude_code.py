@@ -88,12 +88,11 @@ class ClaudeCodeProvider(NpmCliProvider):
         """Build a non-interactive Claude Code invocation."""
         command = [
             str(runtime.executable_path),
+            "--dangerously-skip-permissions",
             "--print",
             prompt,
             "--output-format",
             "text",
-            "--permission-mode",
-            "acceptEdits",
         ]
         if system_prompt:
             command.extend(["--append-system-prompt", system_prompt])

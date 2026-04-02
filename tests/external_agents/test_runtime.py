@@ -558,7 +558,7 @@ async def test_runtime_manager_failed_maintenance_keeps_current_runtime(
 
 
 def test_codex_provider_builds_expected_command() -> None:
-    """Codex provider builds a non-interactive full-auto invocation."""
+    """Codex provider bypasses approvals and sandbox for unattended runs."""
     provider = CodexProvider()
     runtime = ResolvedRuntime(
         provider="codex",
@@ -574,13 +574,11 @@ def test_codex_provider_builds_expected_command() -> None:
         system_prompt="be minimal",
     )
 
-    assert command[:6] == [
+    assert command[:4] == [
         "/tmp/codex/bin/codex",
         "exec",
+        "--dangerously-bypass-approvals-and-sandbox",
         "--skip-git-repo-check",
-        "--full-auto",
-        "--sandbox",
-        "workspace-write",
     ]
     assert "System instructions:" in command[-1]
 
@@ -689,7 +687,7 @@ def test_claude_provider_uses_setup_token_login() -> None:
 
 
 def test_claude_provider_builds_expected_command() -> None:
-    """Claude provider uses print mode with appended system instructions."""
+    """Claude provider skips permission prompts for unattended runs."""
     provider = ClaudeCodeProvider()
     runtime = ResolvedRuntime(
         provider="claude_code",
@@ -707,11 +705,11 @@ def test_claude_provider_builds_expected_command() -> None:
 
     assert command[:6] == [
         "/tmp/claude/bin/claude",
+        "--dangerously-skip-permissions",
         "--print",
         "review",
         "--output-format",
         "text",
-        "--permission-mode",
     ]
     assert "--append-system-prompt" in command
 

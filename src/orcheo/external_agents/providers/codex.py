@@ -93,10 +93,8 @@ class CodexProvider(NpmCliProvider):
         return [
             str(runtime.executable_path),
             "exec",
+            "--dangerously-bypass-approvals-and-sandbox",
             "--skip-git-repo-check",
-            "--full-auto",
-            "--sandbox",
-            "workspace-write",
             combined_prompt,
         ]
 
