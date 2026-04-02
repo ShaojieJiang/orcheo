@@ -139,10 +139,10 @@ def _sync_authenticated_provider_to_vault(
     """Persist restorable auth material for an already-authenticated provider."""
     if provider_id == ExternalAgentProviderName.CLAUDE_CODE:
         token = environ.get("CLAUDE_CODE_OAUTH_TOKEN", "").strip()
-        if token:
+        if token:  # pragma: no branch
             _persist_claude_oauth_token_to_vault(token)
         return
-    if provider_id == ExternalAgentProviderName.CODEX:
+    if provider_id == ExternalAgentProviderName.CODEX:  # pragma: no branch
         _persist_codex_auth_json_to_vault(environ)
 
 

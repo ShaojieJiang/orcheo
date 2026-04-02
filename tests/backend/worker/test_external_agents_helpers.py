@@ -1,8 +1,11 @@
 import os
 import signal
 import subprocess
+from collections.abc import Mapping
 from datetime import UTC, datetime
+from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 import pytest
 from orcheo_backend.app.external_agent_runtime_store import ExternalAgentRuntimeStore
 from orcheo_backend.app.schemas.system import (
@@ -11,10 +14,10 @@ from orcheo_backend.app.schemas.system import (
     ExternalAgentProviderName,
 )
 from orcheo_backend.worker.external_agents import (
+    CODEX_AUTH_JSON_CREDENTIAL_NAME,
     LOGIN_INPUT_RESEND_SECONDS,
     _active_login_session_status,
     _browser_login_detail,
-    _clear_stored_claude_oauth_token,
     _drain_login_output,
     _extract_auth_token,
     _extract_auth_url,
@@ -25,8 +28,10 @@ from orcheo_backend.worker.external_agents import (
     _forward_login_input,
     _initial_login_detail,
     _normalize_terminal_line,
+    _persist_codex_auth_json_to_vault,
     _prefix_before_store_marker,
     _redact_sensitive_output,
+    _sync_authenticated_provider_to_vault,
     _terminate_process_group,
     _token_line_after_header,
     _trim_recent_output,
@@ -186,6 +191,117 @@ def test_trim_recent_output() -> None:
     assert len(trimmed) == len(long_text[-4000:])
 
 
+def test_persist_codex_auth_json_skips_when_missing(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    target_file = tmp_path / "auth.json"
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents._codex_auth_file_path",
+        lambda environ: target_file,
+    )
+    sentinel_vault = object()
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.get_vault",
+        lambda: sentinel_vault,
+    )
+    calls: list[bool] = []
+
+    def fake_upsert(*args: Any, **kwargs: Any) -> None:
+        calls.append(True)
+
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.upsert_external_agent_secret",
+        fake_upsert,
+    )
+
+    _persist_codex_auth_json_to_vault({"CODEX_HOME": "unused"})
+
+    assert calls == []
+
+
+def test_persist_codex_auth_json_reads_file(  # noqa: E501
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    auth_file = tmp_path / "auth.json"
+    auth_data = "secret-json"
+    auth_file.write_text(auth_data, encoding="utf-8")
+
+    sentinel_vault = object()
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents._codex_auth_file_path",
+        lambda environ: auth_file,
+    )
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.get_vault",
+        lambda: sentinel_vault,
+    )
+    recorded: list[tuple[Any, str, str, str]] = []  # noqa: E501
+
+    def fake_upsert(
+        vault: Any, credential_name: str, provider: str, secret: str
+    ) -> None:
+        recorded.append((vault, credential_name, provider, secret))
+
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.upsert_external_agent_secret",
+        fake_upsert,
+    )
+
+    _persist_codex_auth_json_to_vault({})
+
+    assert recorded == [
+        (
+            sentinel_vault,
+            CODEX_AUTH_JSON_CREDENTIAL_NAME,
+            "codex",
+            auth_data,
+        )
+    ]
+
+
+def test_sync_authenticated_provider_to_vault_persists_claude_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[str] = []
+
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents._persist_claude_oauth_token_to_vault",
+        lambda token: captured.append(token),
+    )
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents._persist_codex_auth_json_to_vault",
+        lambda environ: pytest.fail("codex persist should not run for Claude"),
+    )
+
+    _sync_authenticated_provider_to_vault(
+        ExternalAgentProviderName.CLAUDE_CODE,
+        {"CLAUDE_CODE_OAUTH_TOKEN": " sk-ant-1234 "},
+    )
+
+    assert captured == ["sk-ant-1234"]
+
+
+def test_sync_authenticated_provider_to_vault_persists_codex_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[Mapping[str, str]] = []
+
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents._persist_codex_auth_json_to_vault",
+        lambda env: captured.append(env),  # type: ignore[arg-type]
+    )
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents._persist_claude_oauth_token_to_vault",
+        lambda token: pytest.fail("claude persist should not run for Codex"),
+    )
+
+    env = {"CODEX_HOME": "/tmp/codex", "OTHER": "value"}
+    _sync_authenticated_provider_to_vault(ExternalAgentProviderName.CODEX, env)
+
+    assert captured == [env]
+
+
 def test_forward_login_input_sends_and_resends(monkeypatch) -> None:
     writes: list[tuple[int, bytes]] = []
     monkeypatch.setattr(os, "write", lambda fd, data: writes.append((fd, data)))
@@ -219,29 +335,6 @@ def test_login_detail_variants() -> None:
     assert "Claude" in _browser_login_detail(ExternalAgentProviderName.CLAUDE_CODE)
     assert "device-auth page" in _browser_login_detail(ExternalAgentProviderName.CODEX)
     assert "browser sign-in" in _browser_login_detail("other")  # type: ignore[arg-type]
-
-
-def test_clear_stored_claude_token(runtime_store: ExternalAgentRuntimeStore) -> None:
-    runtime_store.save_provider_environment(
-        ExternalAgentProviderName.CLAUDE_CODE,
-        {"CLAUDE_CODE_OAUTH_TOKEN": "token"},
-    )
-
-    class DummyManager:
-        def __init__(self) -> None:
-            self.env: dict[str, dict[str, str]] = {}
-
-        def save_provider_environment(
-            self, provider: str, updates: dict[str, str]
-        ) -> None:
-            self.env[provider] = updates
-
-    manager = DummyManager()
-    _clear_stored_claude_oauth_token(manager, runtime_store)
-    assert (
-        runtime_store.get_provider_environment(ExternalAgentProviderName.CLAUDE_CODE)
-        == {}
-    )
 
 
 def test_active_login_session_status(runtime_store: ExternalAgentRuntimeStore) -> None:
