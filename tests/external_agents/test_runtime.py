@@ -10,6 +10,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import Mock
 import pytest
+import orcheo.external_agents.paths as external_agent_paths
 from orcheo.external_agents.manifest import RuntimeManifestStore, provider_lock
 from orcheo.external_agents.models import (
     AuthProbeResult,
@@ -159,6 +160,38 @@ def test_default_runtime_root_falls_back_to_home(tmp_path: Path) -> None:
     assert resolved == home_directory / ".orcheo" / "agent-runtimes"
 
 
+def test_runtime_path_helpers_return_expected_locations(tmp_path: Path) -> None:
+    """Path helpers resolve provider-specific runtime storage locations."""
+    runtime_root = external_agent_paths.ensure_runtime_root(tmp_path / "managed")
+
+    assert runtime_root == (tmp_path / "managed").resolve()
+    assert runtime_root.is_dir()
+    assert (
+        external_agent_paths.provider_root(runtime_root, "codex")
+        == runtime_root / "codex"
+    )
+    assert (
+        external_agent_paths.provider_manifest_path(runtime_root, "codex")
+        == runtime_root / "codex" / "manifest.json"
+    )
+    assert (
+        provider_environment_path(runtime_root, "codex")
+        == runtime_root / "codex" / "environment.json"
+    )
+    assert (
+        external_agent_paths.provider_lock_path(runtime_root, "codex")
+        == runtime_root / "codex" / ".lock"
+    )
+    assert (
+        external_agent_paths.provider_runtimes_dir(runtime_root, "codex")
+        == runtime_root / "codex" / "runtimes"
+    )
+    assert (
+        external_agent_paths.provider_staging_dir(runtime_root, "codex")
+        == runtime_root / "codex" / "staging"
+    )
+
+
 def test_resolved_runtime_model_dump_serializes_paths(tmp_path: Path) -> None:
     runtime = ResolvedRuntime(
         provider="codex",
@@ -281,6 +314,92 @@ def test_validate_working_directory_wraps_mkdir_errors_as_validation_error(
             runtime_root=runtime_root,
             auto_init_git_worktree=True,
         )
+
+
+def test_ensure_directory_exists_rejects_missing_directory_without_auto_init(
+    tmp_path: Path,
+) -> None:
+    """Missing working directories are rejected when auto-init is disabled."""
+    missing_dir = tmp_path / "missing"
+
+    with pytest.raises(WorkingDirectoryValidationError, match="does not exist"):
+        external_agent_paths._ensure_directory_exists(
+            missing_dir,
+            auto_init_git_worktree=False,
+        )
+
+
+def test_ensure_git_worktree_raises_when_git_init_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A non-zero git init result is surfaced as a validation error."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    calls: list[tuple[str, ...]] = []
+
+    def _fake_run_git_command(
+        directory: Path, *args: str
+    ) -> subprocess.CompletedProcess[str]:
+        assert directory == repo
+        calls.append(args)
+        if args == ("rev-parse", "--show-toplevel"):
+            return subprocess.CompletedProcess(args=list(args), returncode=1)
+        if args == ("init", "--quiet", "--initial-branch=main"):
+            return subprocess.CompletedProcess(args=list(args), returncode=2)
+        raise AssertionError(f"Unexpected git command: {args}")
+
+    monkeypatch.setattr(external_agent_paths, "_run_git_command", _fake_run_git_command)
+
+    with pytest.raises(
+        WorkingDirectoryValidationError,
+        match="Failed to initialize a Git worktree",
+    ):
+        external_agent_paths._ensure_git_worktree(repo, auto_init_git_worktree=True)
+
+    assert calls == [
+        ("rev-parse", "--show-toplevel"),
+        ("init", "--quiet", "--initial-branch=main"),
+    ]
+
+
+def test_ensure_git_worktree_raises_when_init_does_not_create_valid_worktree(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A directory that still fails rev-parse after init is rejected."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    results = iter(
+        [
+            subprocess.CompletedProcess(
+                args=["rev-parse", "--show-toplevel"],
+                returncode=1,
+            ),
+            subprocess.CompletedProcess(
+                args=["init", "--quiet", "--initial-branch=main"],
+                returncode=0,
+            ),
+            subprocess.CompletedProcess(
+                args=["rev-parse", "--show-toplevel"],
+                returncode=1,
+            ),
+        ]
+    )
+
+    def _fake_run_git_command(
+        directory: Path, *args: str
+    ) -> subprocess.CompletedProcess[str]:
+        assert directory == repo
+        return next(results)
+
+    monkeypatch.setattr(external_agent_paths, "_run_git_command", _fake_run_git_command)
+
+    with pytest.raises(
+        WorkingDirectoryValidationError,
+        match="must be a Git worktree root or a descendant inside a Git worktree",
+    ):
+        external_agent_paths._ensure_git_worktree(repo, auto_init_git_worktree=True)
 
 
 def test_validate_working_directory_surfaces_missing_git(
