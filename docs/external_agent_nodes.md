@@ -10,6 +10,8 @@ host can safely run external coding-agent CLIs inside validated Git worktrees.
 - Worker-managed installs only; Orcheo does not install these CLIs into global
   system paths.
 - Manual provider login is still required on the worker host.
+- Claude Code unattended runs require the worker process to run as a non-root
+  user. Anthropic blocks `--dangerously-skip-permissions` under `root`/`sudo`.
 - V1 does not add new Orcheo environment variables for runtime roots,
   maintenance cadence, or provider selection.
 
@@ -22,6 +24,8 @@ Orcheo manages provider runtimes under a persistent root with strong defaults:
 - In Docker deployments, keep the worker `HOME` on persistent storage so
   provider login state such as `~/.claude*` and `$CODEX_HOME/auth.json`
   survives container restarts.
+- In Docker deployments, run backend and worker processes as a non-root user and
+  make the mounted workspace writable by that container user.
 - Install the latest published provider CLI into a versioned provider-owned
   prefix.
 - Keep one current runtime and one previous known-good runtime for rollback and
@@ -52,7 +56,7 @@ codex login
 ### Claude Code
 
 - Package: `@anthropic-ai/claude-code`
-- Runtime command: `claude --print ... --permission-mode acceptEdits`
+- Runtime command: `claude --dangerously-skip-permissions --print ...`
 - Manual login:
 
 ```bash

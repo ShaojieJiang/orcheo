@@ -7,6 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
     git \
+    gosu \
     nodejs \
     npm \
     && rm -rf /var/lib/apt/lists/*
@@ -15,6 +16,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 RUN printf '%s\n' '#!/bin/sh' 'exec uv tool run "$@"' > /usr/local/bin/uvx \
     && chmod +x /usr/local/bin/uvx
+RUN groupadd --gid 1000 orcheo \
+    && useradd --uid 1000 --gid 1000 --create-home --shell /bin/sh orcheo
+COPY deploy/stack/orcheo-entrypoint.sh /usr/local/bin/orcheo-entrypoint
+RUN chmod +x /usr/local/bin/orcheo-entrypoint
 
 # Copy dependency files first for better caching
 COPY pyproject.toml uv.lock README.md ./
@@ -29,6 +34,7 @@ COPY src/ src/
 
 # Set Python path
 ENV PYTHONPATH=/app/src:/app/apps/backend/src
+ENTRYPOINT ["orcheo-entrypoint"]
 
 # Default command (can be overridden in docker-compose)
 CMD ["uv", "run", "uvicorn", "orcheo_backend.app:app", "--host", "0.0.0.0", "--port", "8000"]
