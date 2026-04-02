@@ -1,6 +1,7 @@
 """Shared task node for CLI-backed external coding agents."""
 
 from __future__ import annotations
+import logging
 from collections.abc import Mapping
 from typing import Any, ClassVar
 from langchain_core.runnables import RunnableConfig
@@ -18,6 +19,9 @@ from orcheo.runtime.credentials import (
     CredentialReferenceNotFoundError,
     CredentialResolverUnavailableError,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 class ExternalAgentNode(TaskNode):
@@ -205,6 +209,16 @@ class ExternalAgentNode(TaskNode):
             prompt=prompt,
             system_prompt=self.system_prompt,
         )
+        audit_metadata = provider.execution_audit_metadata(
+            runtime,
+            command=command,
+            working_directory=working_directory,
+        )
+        if audit_metadata:
+            logger.info(
+                "External agent execution requested provider bypass flags.",
+                extra={"node_name": self.name, **audit_metadata},
+            )
         result = await execute_process(
             command,
             cwd=working_directory,

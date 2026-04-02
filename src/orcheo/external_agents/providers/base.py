@@ -5,7 +5,7 @@ import os
 import re
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 from orcheo.external_agents.models import AuthProbeResult, AuthStatus, ResolvedRuntime
 
 
@@ -58,6 +58,15 @@ class ExternalAgentProvider(Protocol):
     ) -> dict[str, str]:
         """Return the environment passed to install/auth/run commands."""
 
+    def execution_audit_metadata(
+        self,
+        runtime: ResolvedRuntime,
+        *,
+        command: list[str],
+        working_directory: Path | None = None,
+    ) -> dict[str, Any] | None:
+        """Return structured audit metadata for sensitive command executions."""
+
 
 class NpmCliProvider:
     """Shared implementation for npm-distributed external agent CLIs."""
@@ -104,6 +113,17 @@ class NpmCliProvider:
         if environ is not None:
             merged.update(environ)
         return merged
+
+    def execution_audit_metadata(
+        self,
+        runtime: ResolvedRuntime,
+        *,
+        command: list[str],
+        working_directory: Path | None = None,
+    ) -> dict[str, Any] | None:
+        """Return audit metadata for sensitive executions, when applicable."""
+        del runtime, command, working_directory
+        return None
 
     def _authenticated_if_env_present(
         self,
