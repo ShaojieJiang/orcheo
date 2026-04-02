@@ -85,8 +85,8 @@ class ExternalAgentRuntimeManager:
 
     def environment_for_provider(self, provider_name: str) -> dict[str, str]:
         """Return the effective environment for one provider."""
-        merged = dict(self.environ)
-        merged.update(self._load_provider_environment(provider_name))
+        merged = self._load_provider_environment(provider_name)
+        merged.update(self.environ)
         return merged
 
     def save_provider_environment(

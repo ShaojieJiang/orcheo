@@ -178,6 +178,34 @@ describe("AgentSettingsTab", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("hides the Codex device-auth reminder once a login session is in progress", async () => {
+    vi.mocked(getExternalAgents).mockResolvedValue({
+      providers: [
+        mockProviders[0],
+        {
+          ...mockProviders[1],
+          state: "authenticating",
+          installed: true,
+          authenticated: false,
+          resolved_version: "0.30.0",
+          executable_path: "/data/codex/bin/codex",
+          detail: "Waiting for browser-based sign-in.",
+          active_session_id: "session-1",
+        },
+      ],
+    });
+
+    render(<AgentSettingsTab />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Codex")).toBeInTheDocument();
+    });
+
+    expect(
+      screen.queryByText(/Enable device code authorization for Codex/i),
+    ).not.toBeInTheDocument();
+  });
+
   it("starts the worker login flow from Canvas", async () => {
     const user = userEvent.setup();
     render(<AgentSettingsTab />);

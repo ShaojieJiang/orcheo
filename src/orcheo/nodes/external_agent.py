@@ -14,12 +14,17 @@ from orcheo.external_agents import (
 )
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
+from orcheo.runtime.credentials import (
+    CredentialReferenceNotFoundError,
+    CredentialResolverUnavailableError,
+)
 
 
 class ExternalAgentNode(TaskNode):
     """Base task node for provider-managed external coding agents."""
 
     provider_name: ClassVar[str]
+    optional_auth_fields: ClassVar[frozenset[str]] = frozenset()
     runtime_manager_class: ClassVar[type[ExternalAgentRuntimeManager]] = (
         ExternalAgentRuntimeManager
     )
@@ -77,6 +82,27 @@ class ExternalAgentNode(TaskNode):
             "'working_directory', 'workspace', 'repo_path', or 'path'."
         )
         raise ValueError(msg)
+
+    def _compute_run_updates(self, state: State) -> dict[str, Any]:
+        """Resolve templates while tolerating missing optional auth placeholders."""
+        updates: dict[str, Any] = {}
+        for key, value in self.__dict__.items():
+            try:
+                decoded = self._decode_value(value, state)
+            except (
+                CredentialReferenceNotFoundError,
+                CredentialResolverUnavailableError,
+            ):
+                if key not in self.optional_auth_fields:
+                    raise
+                decoded = None
+            if decoded is not value:
+                updates[key] = decoded
+        return updates
+
+    def auth_environment_overrides(self) -> dict[str, str]:
+        """Return provider-specific auth values for the current node run."""
+        return {}
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Resolve the provider runtime, validate setup, and run the CLI."""
@@ -137,6 +163,7 @@ class ExternalAgentNode(TaskNode):
         provider = manager.get_provider(self.provider_name)
         runtime = resolution.runtime
         provider_environ = manager.environment_for_provider(self.provider_name)
+        provider_environ.update(self.auth_environment_overrides())
         auth_probe = provider.probe_auth(runtime, environ=provider_environ)
         if not auth_probe.authenticated:
             self._set_trace_metadata_for_run(

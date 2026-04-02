@@ -395,7 +395,8 @@ const AgentSettingsTab = () => {
               : "Connect";
         const showCodexDeviceAuthReminder =
           provider.provider === "codex" &&
-          (provider.state !== "ready" || session !== null);
+          (provider.state === "not_installed" ||
+            provider.state === "needs_login");
 
         return (
           <Card key={provider.provider} className="border-border/80">

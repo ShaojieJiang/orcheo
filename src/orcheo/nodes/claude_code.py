@@ -1,6 +1,7 @@
 """Claude Code workflow node."""
 
 from __future__ import annotations
+from pydantic import Field
 from orcheo.nodes.external_agent import ExternalAgentNode
 from orcheo.nodes.registry import NodeMetadata, registry
 
@@ -16,3 +17,17 @@ class ClaudeCodeNode(ExternalAgentNode):
     """Workflow node for the Claude Code CLI."""
 
     provider_name = "claude_code"
+    optional_auth_fields = frozenset({"auth_token"})
+
+    auth_token: str | None = Field(
+        default="[[CLAUDE_CODE_OAUTH_TOKEN]]",
+        description=(
+            "Optional Claude Code OAuth token placeholder resolved from the vault."
+        ),
+    )
+
+    def auth_environment_overrides(self) -> dict[str, str]:
+        """Materialize Claude auth from the configured credential template."""
+        if not self.auth_token:
+            return {}
+        return {"CLAUDE_CODE_OAUTH_TOKEN": self.auth_token}

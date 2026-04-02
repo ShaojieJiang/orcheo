@@ -14,17 +14,25 @@ class CodexProvider(NpmCliProvider):
     display_name = "Codex"
     package_name = "@openai/codex"
     executable_name = "codex"
+    auth_json_env_var = "CODEX_AUTH_JSON"
+
+    def auth_file_path(
+        self,
+        environ: Mapping[str, str] | None = None,
+    ) -> Path:
+        """Return the Codex auth.json path for the provided environment."""
+        merged = super().build_environment(environ)
+        codex_home = merged.get("CODEX_HOME", "").strip()
+        if codex_home:
+            return Path(codex_home).expanduser() / "auth.json"
+        return Path("~/.codex/auth.json").expanduser()
 
     def _auth_file_candidates(
         self,
         environ: Mapping[str, str] | None = None,
     ) -> tuple[Path, ...]:
         """Return the auth.json locations Codex may use in this environment."""
-        merged = self.build_environment(environ)
-        codex_home = merged.get("CODEX_HOME", "").strip()
-        if codex_home:
-            return (Path(codex_home).expanduser() / "auth.json",)
-        return (Path("~/.codex/auth.json"),)
+        return (self.auth_file_path(environ),)
 
     def probe_auth(
         self,
@@ -55,11 +63,14 @@ class CodexProvider(NpmCliProvider):
     ) -> dict[str, str]:
         """Normalize OpenAI auth env vars for non-interactive Codex runs."""
         merged = super().build_environment(environ)
-        codex_home = merged.get("CODEX_HOME", "").strip()
-        if codex_home:
-            Path(codex_home).expanduser().mkdir(parents=True, exist_ok=True)
+        auth_file = self.auth_file_path(merged)
+        auth_file.parent.mkdir(parents=True, exist_ok=True)
         if not merged.get("CODEX_API_KEY") and merged.get("OPENAI_API_KEY"):
             merged["CODEX_API_KEY"] = merged["OPENAI_API_KEY"]
+        auth_json = merged.get(self.auth_json_env_var, "").strip()
+        if auth_json:
+            auth_file.write_text(auth_json, encoding="utf-8")
+            auth_file.chmod(0o600)
         return merged
 
     def build_command(
