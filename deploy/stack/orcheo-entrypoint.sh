@@ -18,6 +18,7 @@ runtime_root="/data/agent-runtimes"
 cache_dir="${ORCHEO_CACHE_DIR:-/data/cache/orcheo}"
 plugin_dir="${ORCHEO_PLUGIN_DIR:-/data/plugins}"
 uv_cache_dir="${UV_CACHE_DIR:-/data/cache/uv}"
+workspace_root="/workspace/agents"
 
 ensure_dir() {
   dir_path="$1"
@@ -33,6 +34,15 @@ ensure_dir() {
   fi
 }
 
+same_path_target() {
+  left="$1"
+  right="$2"
+  if [ ! -e "$left" ] || [ ! -e "$right" ]; then
+    return 1
+  fi
+  [ "$(stat -c '%d:%i' "$left")" = "$(stat -c '%d:%i' "$right")" ]
+}
+
 if [ "$(id -u)" -eq 0 ]; then
   ensure_dir /data
   ensure_dir "$HOME" true
@@ -42,6 +52,13 @@ if [ "$(id -u)" -eq 0 ]; then
   ensure_dir "$cache_dir" true
   ensure_dir "$plugin_dir" true
   ensure_dir "$uv_cache_dir" true
+  ensure_dir /workspace
+
+  if [ ! -e "$workspace_root" ]; then
+    ensure_dir "$workspace_root" true
+  elif ! same_path_target "$workspace_root" /app; then
+    ensure_dir "$workspace_root" true
+  fi
 
   if [ -d /app/.venv ] || [ ! -e /app/.venv ]; then
     ensure_dir /app/.venv true
