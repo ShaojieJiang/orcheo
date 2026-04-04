@@ -227,6 +227,39 @@ def test_run_login_command_uses_visible_terminal_screen_for_rewritten_token() ->
     assert "[redacted worker auth token]" in result.output
 
 
+def test_run_login_command_ignores_unsupported_escape_sequences(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Unsupported ANSI escapes should not try to write a local ./log file."""
+    from orcheo_backend.worker.external_agents import _run_login_command
+
+    readonly_dir = tmp_path / "readonly"
+    readonly_dir.mkdir()
+    readonly_dir.chmod(0o555)
+    monkeypatch.chdir(readonly_dir)
+
+    result = _run_login_command(
+        [
+            "python3",
+            "-c",
+            (
+                "import sys; "
+                "sys.stdout.write('\\x1bc'); "
+                "sys.stdout.write('Opening browser to sign in...\\n'); "
+                "sys.stdout.flush()"
+            ),
+        ],
+        env={},
+        on_output=lambda _output, _auth_url, _device_code: None,
+        timeout_seconds=10,
+    )
+
+    assert result.exit_code == 0
+    assert result.timed_out is False
+    assert "Opening browser to sign in..." in result.output
+    assert not (readonly_dir / "log").exists()
+
+
 def test_extract_visible_auth_token_rejects_masked_claude_token_block() -> None:
     """Rendered screen output should not mint fake tokens from masked lines."""
     from orcheo_backend.worker.external_agents import _extract_visible_auth_token
