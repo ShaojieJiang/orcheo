@@ -30,6 +30,7 @@ from orcheo.nodes.data import (
 )
 from orcheo.nodes.debug import DebugNode
 from orcheo.nodes.deep_agent import DeepAgentNode
+from orcheo.nodes.gemini import GeminiNode
 from orcheo.nodes.javascript_sandbox import JavaScriptSandboxNode
 from orcheo.nodes.lark import LarkSendMessageNode, LarkTenantAccessTokenNode
 from orcheo.nodes.listeners import (
@@ -89,6 +90,7 @@ __all__ = [
     "LLMNode",
     "ClaudeCodeNode",
     "CodexNode",
+    "GeminiNode",
     "AgentensorNode",
     "HttpRequestNode",
     "JsonProcessingNode",

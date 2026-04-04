@@ -52,6 +52,7 @@ def test_list_external_agents_returns_known_providers(
     assert [item["provider"] for item in payload["providers"]] == [
         "claude_code",
         "codex",
+        "gemini",
     ]
     assert payload["providers"][0]["state"] == "unknown"
 
@@ -73,7 +74,7 @@ def test_refresh_external_agents_queues_worker_tasks(
     assert response.status_code == 200
     payload = response.json()
     assert all(item["state"] == "checking" for item in payload["providers"])
-    assert send_task.call_count == 2
+    assert send_task.call_count == 3
     send_task.assert_any_call(
         "orcheo_backend.worker.tasks.refresh_external_agent_status",
         args=["claude_code"],
@@ -81,6 +82,10 @@ def test_refresh_external_agents_queues_worker_tasks(
     send_task.assert_any_call(
         "orcheo_backend.worker.tasks.refresh_external_agent_status",
         args=["codex"],
+    )
+    send_task.assert_any_call(
+        "orcheo_backend.worker.tasks.refresh_external_agent_status",
+        args=["gemini"],
     )
 
 
@@ -136,6 +141,45 @@ def test_start_external_agent_login_retries_with_fresh_session(
     second_session = second.json()["session_id"]
     assert first_session != second_session
     assert send_task.call_count == 2
+
+
+def test_disconnect_external_agent_queues_worker_task(
+    monkeypatch: pytest.MonkeyPatch,
+    runtime_store: ExternalAgentRuntimeStore,
+) -> None:
+    """Disconnecting a provider should queue worker-side auth cleanup."""
+    assert runtime_store._redis is None
+    monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
+
+    send_task = Mock()
+    monkeypatch.setattr(system_router.celery_app, "send_task", send_task)
+
+    current = runtime_store.get_provider_status(
+        system_router.ExternalAgentProviderName.CODEX
+    )
+    runtime_store.save_provider_status(
+        current.model_copy(
+            update={
+                "state": system_router.ExternalAgentProviderState.READY,
+                "installed": True,
+                "authenticated": True,
+                "active_session_id": "session-1",
+            }
+        )
+    )
+
+    client = create_test_client()
+    response = client.post("/api/system/external-agents/codex/disconnect")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["provider"] == "codex"
+    assert payload["state"] == "checking"
+    assert payload["active_session_id"] == "session-1"
+    send_task.assert_called_once_with(
+        "orcheo_backend.worker.tasks.disconnect_external_agent",
+        args=["codex"],
+    )
 
 
 def test_missing_external_agent_login_session_returns_not_found(

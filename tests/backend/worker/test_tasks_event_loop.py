@@ -114,3 +114,17 @@ async def test_start_external_agent_login_async_proxies_to_worker_helper() -> No
 
     start.assert_awaited_once_with("codex", "session-1")
     assert result == {"status": "authenticated"}
+
+
+@pytest.mark.asyncio
+async def test_disconnect_external_agent_async_proxies_to_worker_helper() -> None:
+    from orcheo_backend.worker.tasks import _disconnect_external_agent_async
+
+    with patch(
+        "orcheo_backend.worker.external_agents.disconnect_external_agent_async",
+        return_value={"status": "needs_login"},
+    ) as disconnect:
+        result = await _disconnect_external_agent_async("gemini")
+
+    disconnect.assert_awaited_once_with("gemini")
+    assert result == {"status": "needs_login"}

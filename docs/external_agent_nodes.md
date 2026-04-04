@@ -1,8 +1,9 @@
 # External Agent CLI Nodes
 
-Orcheo can run Claude Code and Codex as workflow nodes through the execution
-worker. This feature is intended for self-hosted deployments where the worker
-host can safely run external coding-agent CLIs inside validated Git worktrees.
+Orcheo can run Claude Code, Codex, and Gemini CLI as workflow nodes through
+the execution worker. This feature is intended for self-hosted deployments
+where the worker host can safely run external coding-agent CLIs inside
+validated Git worktrees.
 
 ## Support Scope
 
@@ -10,6 +11,8 @@ host can safely run external coding-agent CLIs inside validated Git worktrees.
 - Worker-managed installs only; Orcheo does not install these CLIs into global
   system paths.
 - Manual provider login is still required on the worker host.
+- Canvas can also disconnect worker auth state without uninstalling the managed
+  runtime.
 - Claude Code unattended runs require the worker process to run as a non-root
   user. Anthropic blocks `--dangerously-skip-permissions` under `root`/`sudo`.
 - V1 does not add new Orcheo environment variables for runtime roots,
@@ -66,9 +69,30 @@ claude
 - Provider-native auth is also supported when the worker environment already
   exposes supported Claude Code credentials such as `ANTHROPIC_API_KEY`.
 
+### Gemini CLI
+
+- Package: `@google/gemini-cli`
+- Runtime command: `gemini --prompt ... --approval-mode yolo --output-format text`
+- Manual login:
+
+```bash
+gemini /auth signin
+```
+
+- Provider-native auth is also supported when the worker environment already
+  exposes supported Gemini credentials such as `GEMINI_API_KEY`, or Vertex AI
+  credentials such as `GOOGLE_GENAI_USE_VERTEXAI=true` with the required Google
+  Cloud environment.
+- For Google-account login portability across workers, Orcheo persists and
+  restores these files when they exist:
+  - `~/.gemini/google_accounts.json`
+  - `~/.gemini/state.json`
+  - `~/.gemini/oauth_creds.json`
+
 ## Node Contract
 
-Both `ClaudeCodeNode` and `CodexNode` share the same workflow-facing fields:
+`ClaudeCodeNode`, `CodexNode`, and `GeminiNode` share the same workflow-facing
+fields:
 
 - `prompt`
 - `system_prompt`
@@ -123,18 +147,30 @@ commands and rerun guidance instead of a generic failure.
 }
 ```
 
+### Gemini review node
+
+```json
+{
+  "type": "GeminiNode",
+  "name": "gemini_review",
+  "prompt": "Review the current branch for behavioral regressions and summarize the highest-risk issues.",
+  "working_directory": "{{inputs.repo_path}}",
+  "timeout_seconds": 1800
+}
+```
+
 ## Canvas Delivery Checklist
 
 Backend support does not automatically make these nodes usable in Canvas. The
 frontend delivery checklist is:
 
-- Add `ClaudeCodeNode` and `CodexNode` to the Canvas node catalog.
+- Add `ClaudeCodeNode`, `CodexNode`, and `GeminiNode` to the Canvas node catalog.
 - Expose `prompt`, `system_prompt`, `working_directory`, and
   `timeout_seconds` through the current node editing surface. Do not rely on
   the deprecated node inspector for external-agent setup actions.
-- Add a shared Canvas settings surface for worker-scoped provider readiness and
-  OAuth login, because Claude Code and Codex auth belong to the worker host,
-  not to individual workflow nodes.
+- Add a shared Canvas settings surface for worker-scoped provider readiness,
+  OAuth login, and disconnect/logout, because external-agent auth belongs to
+  the worker host, not to individual workflow nodes.
 - Label the nodes as self-hosted/execution-worker features.
 - Surface setup-needed results so operators can jump to the shared External
   Agents settings flow instead of shelling into the worker manually.

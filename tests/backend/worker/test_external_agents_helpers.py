@@ -15,9 +15,14 @@ from orcheo_backend.app.schemas.system import (
 )
 from orcheo_backend.worker.external_agents import (
     CODEX_AUTH_JSON_CREDENTIAL_NAME,
+    GEMINI_GOOGLE_ACCOUNTS_JSON_CREDENTIAL_NAME,
+    GEMINI_OAUTH_CREDS_JSON_CREDENTIAL_NAME,
+    GEMINI_STATE_JSON_CREDENTIAL_NAME,
     LOGIN_INPUT_RESEND_SECONDS,
     _active_login_session_status,
     _browser_login_detail,
+    _clear_provider_auth_state,
+    _delete_file_if_present,
     _drain_login_output,
     _extract_auth_token,
     _extract_auth_url,
@@ -26,10 +31,18 @@ from orcheo_backend.worker.external_agents import (
     _extract_visible_auth_token,
     _extract_worker_auth_token,
     _forward_login_input,
+    _gemini_auth_file_paths,
+    _gemini_auto_enter_prompt_id,
+    _has_gemini_auth_method_prompt,
+    _has_gemini_trust_prompt,
     _initial_login_detail,
+    _logout_provider_cli,
+    _mark_provider_session_disconnected,
     _normalize_terminal_line,
     _persist_codex_auth_json_to_vault,
+    _persist_gemini_auth_files_to_vault,
     _prefix_before_store_marker,
+    _provider_environment_reset,
     _redact_sensitive_output,
     _sync_authenticated_provider_to_vault,
     _terminate_process_group,
@@ -59,6 +72,31 @@ def test_extract_auth_url_returns_localhost_when_it_is_the_only_match() -> None:
     )
 
 
+def test_extract_auth_url_ignores_gemini_tos_url_until_real_auth_url_appears() -> None:
+    payload = """
+    Terms of Services and Privacy Notice for Gemini CLI
+    https://geminicli.com/docs/resources/tos-privacy/
+
+    Please visit the following URL to authorize the application:
+
+    https://accounts.google.com/o/oauth2/v2/auth?redirect_uri=https%3A%2F%2Fcodeassist.google.com%2Fauthcode&response_type=code
+    """
+
+    assert _extract_auth_url(payload) == (
+        "https://accounts.google.com/o/oauth2/v2/auth?redirect_uri="
+        "https%3A%2F%2Fcodeassist.google.com%2Fauthcode&response_type=code"
+    )
+
+
+def test_extract_auth_url_returns_none_for_gemini_tos_url_only() -> None:
+    payload = """
+    Terms of Services and Privacy Notice for Gemini CLI
+    https://geminicli.com/docs/resources/tos-privacy/
+    """
+
+    assert _extract_auth_url(payload) is None
+
+
 def test_extract_auth_url_stops_after_second_blank_continuation_line() -> None:
     payload = """https://example.com/path
 
@@ -72,6 +110,72 @@ part-two"""
 def test_extract_device_code() -> None:
     payload = "Use CODE-ABCD-1234-XYZ to authenticate"
     assert _extract_device_code(payload) == "CODE-ABCD-1234-XYZ"
+
+
+def test_extract_device_code_supports_gemini_verification_copy() -> None:
+    payload = "Your verification code is ABCD-1234"
+    assert _extract_device_code(payload) == "ABCD-1234"
+
+
+def test_has_gemini_trust_prompt_matches_folder_trust_screen() -> None:
+    output = """
+    Do you trust the files in this folder?
+
+    1. Trust folder (app)
+    2. Trust parent folder ()
+    3. Don't trust
+    """
+
+    assert _has_gemini_trust_prompt(output) is True
+
+
+def test_has_gemini_trust_prompt_rejects_other_prompts() -> None:
+    assert (
+        _has_gemini_trust_prompt("Open the browser sign-in link to continue.") is False
+    )
+
+
+def test_has_gemini_auth_method_prompt_matches_auth_selector() -> None:
+    output = """
+    How would you like to authenticate for this project?
+
+    1. Sign in with Google
+    2. Use Gemini API Key
+    3. Vertex AI
+
+    No authentication method selected.
+
+    (Use Enter to select)
+    """
+
+    assert _has_gemini_auth_method_prompt(output) is True
+
+
+def test_gemini_auto_enter_prompt_id_distinguishes_supported_prompts() -> None:
+    assert (
+        _gemini_auto_enter_prompt_id(
+            """
+            Do you trust the files in this folder?
+            1. Trust folder (app)
+            3. Don't trust
+            """
+        )
+        == "trust_folder"
+    )
+    assert (
+        _gemini_auto_enter_prompt_id(
+            """
+            How would you like to authenticate for this project?
+            1. Sign in with Google
+            2. Use Gemini API Key
+            3. Vertex AI
+            No authentication method selected.
+            (Use Enter to select)
+            """
+        )
+        == "auth_method"
+    )
+    assert _gemini_auto_enter_prompt_id("Continue in the browser.") is None
 
 
 @pytest.mark.parametrize(
@@ -260,6 +364,52 @@ def test_persist_codex_auth_json_reads_file(  # noqa: E501
     ]
 
 
+def test_persist_gemini_auth_files_reads_available_files(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    gemini_home = tmp_path / ".gemini"
+    gemini_home.mkdir()
+    google_accounts = gemini_home / "google_accounts.json"
+    google_accounts.write_text('{"active":{}}', encoding="utf-8")
+    state = gemini_home / "state.json"
+    state.write_text('{"tipsShown":{}}', encoding="utf-8")
+
+    sentinel_vault = object()
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.get_vault",
+        lambda: sentinel_vault,
+    )
+    recorded: list[tuple[Any, str, str, str]] = []
+
+    def fake_upsert(
+        vault: Any, credential_name: str, provider: str, secret: str
+    ) -> None:
+        recorded.append((vault, credential_name, provider, secret))
+
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.upsert_external_agent_secret",
+        fake_upsert,
+    )
+
+    _persist_gemini_auth_files_to_vault({"HOME": str(tmp_path)})
+
+    assert recorded == [
+        (
+            sentinel_vault,
+            GEMINI_GOOGLE_ACCOUNTS_JSON_CREDENTIAL_NAME,
+            "gemini",
+            '{"active":{}}',
+        ),
+        (
+            sentinel_vault,
+            GEMINI_STATE_JSON_CREDENTIAL_NAME,
+            "gemini",
+            '{"tipsShown":{}}',
+        ),
+    ]
+
+
 def test_sync_authenticated_provider_to_vault_persists_claude_token(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -302,6 +452,22 @@ def test_sync_authenticated_provider_to_vault_persists_codex_config(
     assert captured == [env]
 
 
+def test_sync_authenticated_provider_to_vault_persists_gemini_files(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[Mapping[str, str]] = []
+
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents._persist_gemini_auth_files_to_vault",
+        lambda env: captured.append(env),  # type: ignore[arg-type]
+    )
+
+    env = {"HOME": "/tmp/gemini"}
+    _sync_authenticated_provider_to_vault(ExternalAgentProviderName.GEMINI, env)
+
+    assert captured == [env]
+
+
 def test_forward_login_input_sends_and_resends(monkeypatch) -> None:
     writes: list[tuple[int, bytes]] = []
     monkeypatch.setattr(os, "write", lambda fd, data: writes.append((fd, data)))
@@ -327,13 +493,36 @@ def test_forward_login_input_sends_and_resends(monkeypatch) -> None:
     assert last_input2 == "code"
 
 
+def test_forward_login_input_supports_bare_enter(monkeypatch) -> None:
+    writes: list[tuple[int, bytes]] = []
+    monkeypatch.setattr(os, "write", lambda fd, data: writes.append((fd, data)))
+
+    last_input, last_at, awaiting = _forward_login_input(
+        1,
+        queued_input="",
+        last_sent_input=None,
+        last_sent_at=None,
+        awaiting_output_after_input=False,
+        now=1000.0,
+    )
+
+    assert last_input == ""
+    assert last_at == 1000.0
+    assert awaiting is True
+    assert writes == [(1, b""), (1, b"\r")]
+
+
 def test_login_detail_variants() -> None:
     assert "Codex" in _initial_login_detail(ExternalAgentProviderName.CODEX)
+    assert "Gemini" in _initial_login_detail(ExternalAgentProviderName.GEMINI)
     assert _initial_login_detail(ExternalAgentProviderName.CLAUDE_CODE).startswith(
         "Starting the provider"
     )
     assert "Claude" in _browser_login_detail(ExternalAgentProviderName.CLAUDE_CODE)
     assert "device-auth page" in _browser_login_detail(ExternalAgentProviderName.CODEX)
+    assert "verification code" in _browser_login_detail(
+        ExternalAgentProviderName.GEMINI
+    )
     assert "browser sign-in" in _browser_login_detail("other")  # type: ignore[arg-type]
 
 
@@ -503,3 +692,321 @@ def test_terminate_process_group_waits_after_sigkill(
     _terminate_process_group(process)  # type: ignore[arg-type]
 
     assert calls == [2, 2]
+
+
+def test_gemini_auth_file_paths_use_home(tmp_path: Path) -> None:
+    paths = _gemini_auth_file_paths({"HOME": str(tmp_path)})
+    assert paths[GEMINI_GOOGLE_ACCOUNTS_JSON_CREDENTIAL_NAME] == (
+        tmp_path / ".gemini" / "google_accounts.json"
+    )
+    assert paths[GEMINI_STATE_JSON_CREDENTIAL_NAME] == (
+        tmp_path / ".gemini" / "state.json"
+    )
+    assert paths[GEMINI_OAUTH_CREDS_JSON_CREDENTIAL_NAME] == (
+        tmp_path / ".gemini" / "oauth_creds.json"
+    )
+
+
+def test_delete_file_if_present_handles_missing(tmp_path: Path) -> None:
+    missing = tmp_path / "missing.json"
+    _delete_file_if_present(missing)
+    assert not missing.exists()
+
+
+def test_logout_provider_cli_returns_early_without_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *args, **kwargs: pytest.fail("subprocess.run should not be called"),
+    )
+
+    _logout_provider_cli(ExternalAgentProviderName.CODEX, None, {})
+
+
+@pytest.mark.parametrize(
+    ("provider_id", "expected_command"),
+    [
+        (
+            ExternalAgentProviderName.CLAUDE_CODE,
+            ["/tmp/runtime/bin/tool", "auth", "logout"],
+        ),
+        (
+            ExternalAgentProviderName.CODEX,
+            ["/tmp/runtime/bin/tool", "logout"],
+        ),
+    ],
+)
+def test_logout_provider_cli_runs_provider_specific_command(
+    monkeypatch: pytest.MonkeyPatch,
+    provider_id: ExternalAgentProviderName,
+    expected_command: list[str],
+) -> None:
+    runtime = SimpleNamespace(executable_path=Path("/tmp/runtime/bin/tool"))
+    calls: list[tuple[list[str], Mapping[str, str]]] = []
+
+    def fake_run(command: list[str], **kwargs: Any) -> None:
+        calls.append((command, kwargs["env"]))
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    _logout_provider_cli(provider_id, runtime, {"HOME": "/tmp/home"})
+
+    assert calls == [(expected_command, {"HOME": "/tmp/home"})]
+
+
+def test_logout_provider_cli_ignores_subprocess_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = SimpleNamespace(executable_path=Path("/tmp/runtime/bin/tool"))
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *args, **kwargs: (_ for _ in ()).throw(subprocess.SubprocessError()),
+    )
+
+    _logout_provider_cli(ExternalAgentProviderName.CODEX, runtime, {})
+
+
+def test_logout_provider_cli_ignores_unsupported_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *args, **kwargs: pytest.fail("subprocess.run should not be called"),
+    )
+    runtime = SimpleNamespace(executable_path=Path("/tmp/runtime/bin/tool"))
+
+    _logout_provider_cli(ExternalAgentProviderName.GEMINI, runtime, {})
+
+
+def test_clear_provider_auth_state_removes_gemini_secrets_and_files(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    gemini_home = tmp_path / ".gemini"
+    gemini_home.mkdir()
+    for name in ("google_accounts.json", "state.json", "oauth_creds.json"):
+        (gemini_home / name).write_text("{}", encoding="utf-8")
+
+    sentinel_vault = object()
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.get_vault",
+        lambda: sentinel_vault,
+    )
+    deleted: list[tuple[Any, str]] = []
+
+    def fake_delete(vault: Any, credential_name: str) -> bool:
+        deleted.append((vault, credential_name))
+        return True
+
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.delete_external_agent_secret",
+        fake_delete,
+    )
+
+    _clear_provider_auth_state(
+        ExternalAgentProviderName.GEMINI,
+        {"HOME": str(tmp_path)},
+    )
+
+    assert deleted == [
+        (sentinel_vault, GEMINI_GOOGLE_ACCOUNTS_JSON_CREDENTIAL_NAME),
+        (sentinel_vault, GEMINI_STATE_JSON_CREDENTIAL_NAME),
+        (sentinel_vault, GEMINI_OAUTH_CREDS_JSON_CREDENTIAL_NAME),
+    ]
+    assert list(gemini_home.glob("*.json")) == []
+
+
+def test_clear_provider_auth_state_removes_claude_secret(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sentinel_vault = object()
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.get_vault",
+        lambda: sentinel_vault,
+    )
+    deleted: list[tuple[Any, str]] = []
+
+    def fake_delete(vault: Any, credential_name: str) -> bool:
+        deleted.append((vault, credential_name))
+        return True
+
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.delete_external_agent_secret",
+        fake_delete,
+    )
+
+    _clear_provider_auth_state(ExternalAgentProviderName.CLAUDE_CODE, {})
+
+    assert deleted == [(sentinel_vault, "CLAUDE_CODE_OAUTH_TOKEN")]
+
+
+def test_clear_provider_auth_state_removes_codex_secret_and_auth_file(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    auth_file = tmp_path / "auth.json"
+    auth_file.write_text("{}", encoding="utf-8")
+    sentinel_vault = object()
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.get_vault",
+        lambda: sentinel_vault,
+    )
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents._codex_auth_file_path",
+        lambda environ: auth_file,
+    )
+    deleted: list[tuple[Any, str]] = []
+
+    def fake_delete(vault: Any, credential_name: str) -> bool:
+        deleted.append((vault, credential_name))
+        return True
+
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.delete_external_agent_secret",
+        fake_delete,
+    )
+
+    _clear_provider_auth_state(ExternalAgentProviderName.CODEX, {})
+
+    assert deleted == [(sentinel_vault, "CODEX_AUTH_JSON")]
+    assert not auth_file.exists()
+
+
+def test_clear_provider_auth_state_ignores_unknown_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.get_vault",
+        lambda: object(),
+    )
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.delete_external_agent_secret",
+        lambda *args, **kwargs: pytest.fail("no secrets should be deleted"),
+    )
+
+    _clear_provider_auth_state("other", {})  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    ("provider_id", "expected"),
+    [
+        (
+            ExternalAgentProviderName.CLAUDE_CODE,
+            {"CLAUDE_CODE_OAUTH_TOKEN": ""},
+        ),
+        (
+            ExternalAgentProviderName.CODEX,
+            {"CODEX_AUTH_JSON": ""},
+        ),
+        (
+            ExternalAgentProviderName.GEMINI,
+            {
+                "GEMINI_GOOGLE_ACCOUNTS_JSON": "",
+                "GEMINI_STATE_JSON": "",
+                "GEMINI_OAUTH_CREDS_JSON": "",
+            },
+        ),
+        ("other", {}),
+    ],
+)
+def test_provider_environment_reset_variants(
+    provider_id: ExternalAgentProviderName | str,
+    expected: dict[str, str],
+) -> None:
+    assert _provider_environment_reset(provider_id) == expected  # type: ignore[arg-type]
+
+
+def test_mark_provider_session_disconnected_clears_active_session(
+    runtime_store: ExternalAgentRuntimeStore,
+) -> None:
+    now = datetime.now(UTC)
+    session = ExternalAgentLoginSession(
+        session_id="sess",
+        provider=ExternalAgentProviderName.GEMINI,
+        display_name="Gemini CLI",
+        state=ExternalAgentLoginSessionState.PENDING,
+        created_at=now,
+        updated_at=now,
+    )
+    runtime_store.save_login_session(session)
+    runtime_store.save_login_input("sess", "ABCD-1234")
+    runtime_store.save_provider_status(
+        runtime_store.get_provider_status(ExternalAgentProviderName.GEMINI).model_copy(
+            update={"active_session_id": "sess"}
+        )
+    )
+
+    _mark_provider_session_disconnected(
+        runtime_store,
+        ExternalAgentProviderName.GEMINI,
+    )
+
+    updated_session = runtime_store.get_login_session("sess")
+    assert updated_session is not None
+    assert updated_session.state == ExternalAgentLoginSessionState.FAILED
+    assert updated_session.detail == "Disconnected by operator."
+    assert runtime_store.get_login_input("sess") is None
+    assert (
+        runtime_store.get_provider_status(
+            ExternalAgentProviderName.GEMINI
+        ).active_session_id
+        is None
+    )
+
+
+def test_mark_provider_session_disconnected_with_terminal_session_only_clears_input(
+    runtime_store: ExternalAgentRuntimeStore,
+) -> None:
+    now = datetime.now(UTC)
+    session = ExternalAgentLoginSession(
+        session_id="sess",
+        provider=ExternalAgentProviderName.CODEX,
+        display_name="Codex",
+        state=ExternalAgentLoginSessionState.AUTHENTICATED,
+        created_at=now,
+        updated_at=now,
+        completed_at=now,
+    )
+    runtime_store.save_login_session(session)
+    runtime_store.save_login_input("sess", "CODE-1234")
+    runtime_store.save_provider_status(
+        runtime_store.get_provider_status(ExternalAgentProviderName.CODEX).model_copy(
+            update={"active_session_id": "sess"}
+        )
+    )
+
+    _mark_provider_session_disconnected(
+        runtime_store,
+        ExternalAgentProviderName.CODEX,
+    )
+
+    updated_session = runtime_store.get_login_session("sess")
+    assert updated_session is not None
+    assert updated_session.state == ExternalAgentLoginSessionState.AUTHENTICATED
+    assert runtime_store.get_login_input("sess") is None
+    assert (
+        runtime_store.get_provider_status(
+            ExternalAgentProviderName.CODEX
+        ).active_session_id
+        is None
+    )
+
+
+def test_mark_provider_session_disconnected_without_active_session(
+    runtime_store: ExternalAgentRuntimeStore,
+) -> None:
+    _mark_provider_session_disconnected(
+        runtime_store,
+        ExternalAgentProviderName.CLAUDE_CODE,
+    )
+
+    assert (
+        runtime_store.get_provider_status(
+            ExternalAgentProviderName.CLAUDE_CODE
+        ).active_session_id
+        is None
+    )

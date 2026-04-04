@@ -1,4 +1,4 @@
-"""Tests for Claude Code and Codex workflow nodes."""
+"""Tests for external workflow nodes backed by coding-agent CLIs."""
 
 from __future__ import annotations
 import subprocess
@@ -9,6 +9,7 @@ from orcheo.external_agents.runtime import ExternalAgentRuntimeManager
 from orcheo.graph.state import State
 from orcheo.nodes.claude_code import ClaudeCodeNode
 from orcheo.nodes.codex import CodexNode
+from orcheo.nodes.gemini import GeminiNode
 from orcheo.nodes.registry import registry
 from orcheo.runtime.credentials import CredentialReferenceNotFoundError
 from orcheo.tracing.model_metadata import TRACE_METADATA_KEY
@@ -42,6 +43,21 @@ class FakeClaudeRuntimeManager(ExternalAgentRuntimeManager):
         super().__init__(
             runtime_root=self.runtime_root,
             providers={"claude_code": self.provider},
+        )
+
+
+class FakeGeminiRuntimeManager(ExternalAgentRuntimeManager):
+    """Runtime manager configured with the fake provider for node tests."""
+
+    provider = FakeProvider(version="1.0.0", authenticated=True)
+    runtime_root: Path
+
+    def __init__(self) -> None:
+        """Initialize the fake runtime manager."""
+        self.provider.name = "gemini"
+        super().__init__(
+            runtime_root=self.runtime_root,
+            providers={"gemini": self.provider},
         )
 
 
@@ -109,6 +125,35 @@ async def test_claude_node_returns_setup_needed_when_auth_missing(
     assert payload["reason"] == "auth_required"
     assert payload["commands"] == ["fake-agent login"]
     assert payload["resolved_version"] == "1.0.0"
+
+
+@pytest.mark.asyncio
+async def test_gemini_node_successfully_installs_and_runs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Gemini node installs a missing runtime and returns normalized success data."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "-C", str(repo), "init", "--quiet"], check=True)
+    FakeGeminiRuntimeManager.runtime_root = tmp_path / "runtimes"
+    monkeypatch.setattr(GeminiNode, "runtime_manager_class", FakeGeminiRuntimeManager)
+    node = GeminiNode(
+        name="gemini_review",
+        prompt="review diff",
+        working_directory=str(repo),
+    )
+
+    result = await node(
+        State({"inputs": {}, "results": {}, "messages": []}),
+        {},
+    )
+
+    payload = result["results"]["gemini_review"]
+    assert payload["status"] == "succeeded"
+    assert payload["provider"] == "gemini"
+    assert payload["resolved_version"] == "1.0.0"
+    assert payload["stdout"] == "review diff\n"
 
 
 @pytest.mark.asyncio
@@ -188,6 +233,36 @@ def test_codex_node_auth_environment_overrides_skips_empty_json() -> None:
     assert node.auth_environment_overrides() == {}
 
 
+def test_gemini_node_auth_environment_overrides_returns_files() -> None:
+    node = GeminiNode(
+        name="gemini_overrides",
+        prompt="cleanup",
+        working_directory=".",
+        google_accounts_json='{"active":{}}',
+        state_json='{"tipsShown":{}}',
+        oauth_creds_json='{"tokens":{}}',
+    )
+
+    assert node.auth_environment_overrides() == {
+        "GEMINI_GOOGLE_ACCOUNTS_JSON": '{"active":{}}',
+        "GEMINI_STATE_JSON": '{"tipsShown":{}}',
+        "GEMINI_OAUTH_CREDS_JSON": '{"tokens":{}}',
+    }
+
+
+def test_gemini_node_auth_environment_overrides_skips_empty_values() -> None:
+    node = GeminiNode(
+        name="gemini_overrides",
+        prompt="cleanup",
+        working_directory=".",
+    )
+    node.google_accounts_json = None
+    node.state_json = None
+    node.oauth_creds_json = None
+
+    assert node.auth_environment_overrides() == {}
+
+
 def test_compute_run_updates_raises_on_non_optional_credential_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -211,11 +286,14 @@ def test_compute_run_updates_raises_on_non_optional_credential_error(
 
 
 def test_external_agent_nodes_registered() -> None:
-    """Both external agent nodes are registered in the global node registry."""
+    """External agent nodes are registered in the global node registry."""
     claude_metadata = registry.get_metadata("ClaudeCodeNode")
     codex_metadata = registry.get_metadata("CodexNode")
+    gemini_metadata = registry.get_metadata("GeminiNode")
 
     assert claude_metadata is not None
     assert claude_metadata.category == "ai"
     assert codex_metadata is not None
     assert codex_metadata.category == "ai"
+    assert gemini_metadata is not None
+    assert gemini_metadata.category == "ai"

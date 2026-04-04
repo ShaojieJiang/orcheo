@@ -140,6 +140,38 @@ def test_collect_workflow_credential_placeholders_raw_payloads_no_source() -> No
     assert placeholders == {"slack_bot_token": {"[[slack_bot_token]]"}}
 
 
+def test_collect_workflow_credential_placeholders_ignores_optional_external_agent_auth() -> (  # noqa: E501
+    None
+):
+    placeholders = collect_workflow_credential_placeholders(
+        {
+            "source": """
+from langgraph.graph import END, START, StateGraph
+from orcheo.graph.state import State
+from orcheo.nodes.gemini import GeminiNode
+
+def orcheo_workflow() -> StateGraph:
+    graph = StateGraph(State)
+    graph.add_node(
+        "gemini",
+        GeminiNode(
+            name="gemini",
+            prompt="Implement the task",
+            working_directory="/workspace/agents",
+        ),
+    )
+    graph.add_edge(START, "gemini")
+    graph.add_edge("gemini", END)
+    return graph
+""",
+            "entrypoint": None,
+        },
+        None,
+    )
+
+    assert placeholders == {}
+
+
 @pytest.mark.asyncio()
 async def test_get_workflow_credential_readiness_handles_missing_workflow() -> None:
     class Repository:

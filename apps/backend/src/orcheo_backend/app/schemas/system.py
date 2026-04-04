@@ -49,6 +49,7 @@ class ExternalAgentProviderName(StrEnum):
 
     CLAUDE_CODE = "claude_code"
     CODEX = "codex"
+    GEMINI = "gemini"
 
 
 class ExternalAgentProviderState(StrEnum):

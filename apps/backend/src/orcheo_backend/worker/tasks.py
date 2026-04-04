@@ -487,6 +487,13 @@ async def _start_external_agent_login_async(
     return await start_external_agent_login_async(provider_name, session_id)
 
 
+async def _disconnect_external_agent_async(provider_name: str) -> dict[str, str]:
+    """Clear worker-side auth state for one external agent provider."""
+    from orcheo_backend.worker.external_agents import disconnect_external_agent_async
+
+    return await disconnect_external_agent_async(provider_name)
+
+
 @celery_app.task(bind=True)
 def dispatch_cron_triggers(self: Task) -> dict[str, Any]:  # noqa: ARG001
     """Dispatch due cron triggers by calling the cron dispatch endpoint.
@@ -535,7 +542,19 @@ def start_external_agent_login(
     )
 
 
+@celery_app.task(bind=True)
+def disconnect_external_agent(
+    self: Task,  # noqa: ARG001
+    provider_name: str,
+) -> dict[str, str]:
+    """Clear worker-side auth state for one external agent provider."""
+    logger.info("Disconnecting external agent auth for %s", provider_name)
+    loop = _get_event_loop()
+    return loop.run_until_complete(_disconnect_external_agent_async(provider_name))
+
+
 __all__ = [
+    "disconnect_external_agent",
     "dispatch_cron_triggers",
     "execute_run",
     "refresh_external_agent_status",

@@ -275,3 +275,23 @@ class TestExternalAgentTasks:
 
         assert result == mock_result
         mock_loop.run_until_complete.assert_called_once()
+
+    def test_disconnect_external_agent_runs_async_helper(self) -> None:
+        """The disconnect task should delegate to the async helper via the event loop."""  # noqa: E501
+        from orcheo_backend.worker.tasks import disconnect_external_agent
+
+        mock_result = {"status": "needs_login"}
+
+        with patch("orcheo_backend.worker.tasks._get_event_loop") as mock_get_loop:
+            mock_loop = MagicMock()
+            mock_loop.run_until_complete.return_value = mock_result
+            mock_get_loop.return_value = mock_loop
+
+            with patch(
+                "orcheo_backend.worker.tasks._disconnect_external_agent_async",
+                new=MagicMock(return_value=MagicMock()),
+            ):
+                result = disconnect_external_agent("codex")
+
+        assert result == mock_result
+        mock_loop.run_until_complete.assert_called_once()

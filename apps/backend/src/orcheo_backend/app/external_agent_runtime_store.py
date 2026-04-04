@@ -31,6 +31,7 @@ def list_external_agent_providers() -> list[ExternalAgentProviderName]:
     return [
         ExternalAgentProviderName.CLAUDE_CODE,
         ExternalAgentProviderName.CODEX,
+        ExternalAgentProviderName.GEMINI,
     ]
 
 
