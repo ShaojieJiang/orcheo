@@ -1677,6 +1677,7 @@ async def test_start_login_gemini_auto_submits_safe_enter_prompts(
         No authentication method selected.
         (Use Enter to select)
         """
+        assert kwargs["cwd"] == Path("/workspace/agents")
         assert kwargs["auto_input"]("Continue in the browser.") is None
         assert kwargs["auto_input"](trust_prompt) == ""
         assert kwargs["auto_input"](trust_prompt) is None
@@ -1699,6 +1700,100 @@ async def test_start_login_gemini_auto_submits_safe_enter_prompts(
 
     assert result == {"status": "timed_out"}
     updated_session = store.get_login_session("gemini-auto-enter")
+    assert updated_session is not None
+    assert updated_session.state == ExternalAgentLoginSessionState.TIMED_OUT
+    assert updated_session.auth_url == "https://accounts.google.com/o/oauth2/v2/auth"
+    assert updated_session.device_code == "ABCD-1234"
+
+
+@pytest.mark.asyncio
+async def test_start_login_gemini_retries_after_cli_restart_notice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo.external_agents.models import (
+        AuthProbeResult,
+        AuthStatus,
+        ResolvedRuntime,
+        RuntimeManifest,
+    )
+    from orcheo_backend.worker.external_agents import start_external_agent_login_async
+
+    store = ExternalAgentRuntimeStore()
+    store._redis = None
+    now = datetime.now(UTC)
+    session = ExternalAgentLoginSession(
+        session_id="gemini-restart",
+        provider=ExternalAgentProviderName.GEMINI,
+        display_name="Gemini CLI",
+        state=ExternalAgentLoginSessionState.PENDING,
+        created_at=now,
+        updated_at=now,
+    )
+    store.save_login_session(session)
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.get_external_agent_runtime_store",
+        lambda: store,
+    )
+
+    runtime = ResolvedRuntime(
+        provider="gemini",
+        version="0.36.0",
+        install_dir=Path("/tmp/gemini"),
+        executable_path=Path("/tmp/gemini/bin/gemini"),
+        package_name="@google/gemini-cli",
+    )
+    manifest = RuntimeManifest(provider="gemini", provider_root=Path("/tmp/gemini"))
+    provider = MagicMock()
+    provider.probe_auth.side_effect = [
+        AuthProbeResult(status=AuthStatus.SETUP_NEEDED, message="login required"),
+        AuthProbeResult(status=AuthStatus.SETUP_NEEDED, message="still waiting"),
+    ]
+    provider.oauth_login_command.return_value = [
+        "/tmp/gemini/bin/gemini",
+        "/auth",
+        "signin",
+    ]
+    provider.build_environment.return_value = {"HOME": "/tmp/gemini-home"}
+    manager = MagicMock()
+    manager.get_provider.return_value = provider
+    manager.inspect_runtime.return_value = (runtime, manifest)
+    manager.environment_for_provider.return_value = {"HOME": "/tmp/gemini-home"}
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.ExternalAgentRuntimeManager",
+        lambda **kwargs: manager,
+    )
+
+    calls = {"count": 0}
+
+    def fake_run_login_command(*args, **kwargs):
+        calls["count"] += 1
+        assert kwargs["cwd"] == Path("/workspace/agents")
+        if calls["count"] == 1:
+            return MagicMock(
+                auth_token=None,
+                auth_url=None,
+                device_code=None,
+                output="Logging in with Google... Restarting Gemini CLI to continue.",
+                timed_out=False,
+            )
+        return MagicMock(
+            auth_token=None,
+            auth_url="https://accounts.google.com/o/oauth2/v2/auth",
+            device_code="ABCD-1234",
+            output="Please visit the following URL to authorize the application.",
+            timed_out=True,
+        )
+
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents._run_login_command",
+        fake_run_login_command,
+    )
+
+    result = await start_external_agent_login_async("gemini", "gemini-restart")
+
+    assert result == {"status": "timed_out"}
+    assert calls["count"] == 2
+    updated_session = store.get_login_session("gemini-restart")
     assert updated_session is not None
     assert updated_session.state == ExternalAgentLoginSessionState.TIMED_OUT
     assert updated_session.auth_url == "https://accounts.google.com/o/oauth2/v2/auth"
@@ -1773,6 +1868,63 @@ async def test_disconnect_external_agent_clears_worker_state_and_refreshes(
         {"CODEX_HOME": "/tmp/codex-home"},
     )
     assert calls[2][0] == "mark"
+
+
+@pytest.mark.asyncio
+async def test_disconnect_external_agent_removes_gemini_runtime_installation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from orcheo.external_agents.models import ResolvedRuntime
+    from orcheo_backend.worker.external_agents import disconnect_external_agent_async
+
+    store = ExternalAgentRuntimeStore()
+    store._redis = None
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.get_external_agent_runtime_store",
+        lambda: store,
+    )
+
+    runtime = ResolvedRuntime(
+        provider="gemini",
+        version="0.36.0",
+        install_dir=tmp_path / "gemini-runtime",
+        executable_path=tmp_path / "gemini-runtime" / "bin" / "gemini",
+        package_name="@google/gemini-cli",
+    )
+    provider_root = tmp_path / "agent-runtimes" / "gemini"
+    provider_root.mkdir(parents=True)
+    manager = MagicMock()
+    manager.runtime_root = tmp_path / "agent-runtimes"
+    manager.inspect_runtime.return_value = (runtime, None)
+    manager.environment_for_provider.return_value = {"HOME": str(tmp_path / "home")}
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.ExternalAgentRuntimeManager",
+        lambda **kwargs: manager,
+    )
+
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents._logout_provider_cli",
+        lambda provider_id, runtime_arg, provider_environ: None,
+    )
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents._clear_provider_auth_state",
+        lambda provider_id, provider_environ: None,
+    )
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents._mark_provider_session_disconnected",
+        lambda runtime_store, provider_id: None,
+    )
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.refresh_external_agent_status_async",
+        AsyncMock(return_value={"status": "not_installed"}),
+    )
+
+    result = await disconnect_external_agent_async("gemini")
+
+    assert result == {"status": "not_installed"}
+    manager.save_provider_environment.assert_not_called()
+    assert not provider_root.exists()
 
 
 @pytest.mark.asyncio

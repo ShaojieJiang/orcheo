@@ -15,6 +15,7 @@ from orcheo_backend.app.schemas.system import (
 )
 from orcheo_backend.worker.external_agents import (
     CODEX_AUTH_JSON_CREDENTIAL_NAME,
+    GEMINI_AUTH_JSON_CREDENTIAL_NAME,
     GEMINI_GOOGLE_ACCOUNTS_JSON_CREDENTIAL_NAME,
     GEMINI_OAUTH_CREDS_JSON_CREDENTIAL_NAME,
     GEMINI_STATE_JSON_CREDENTIAL_NAME,
@@ -44,6 +45,7 @@ from orcheo_backend.worker.external_agents import (
     _prefix_before_store_marker,
     _provider_environment_reset,
     _redact_sensitive_output,
+    _should_retry_gemini_login,
     _sync_authenticated_provider_to_vault,
     _terminate_process_group,
     _token_line_after_header,
@@ -176,6 +178,19 @@ def test_gemini_auto_enter_prompt_id_distinguishes_supported_prompts() -> None:
         == "auth_method"
     )
     assert _gemini_auto_enter_prompt_id("Continue in the browser.") is None
+
+
+def test_should_retry_gemini_login_matches_restart_notice() -> None:
+    assert (
+        _should_retry_gemini_login(
+            "Logging in with Google... Restarting Gemini CLI to continue."
+        )
+        is True
+    )
+
+
+def test_should_retry_gemini_login_ignores_non_restart_output() -> None:
+    assert _should_retry_gemini_login("Please visit the following URL.") is False
 
 
 @pytest.mark.parametrize(
@@ -374,6 +389,13 @@ def test_persist_gemini_auth_files_reads_available_files(
     google_accounts.write_text('{"active":{}}', encoding="utf-8")
     state = gemini_home / "state.json"
     state.write_text('{"tipsShown":{}}', encoding="utf-8")
+    trusted_folders = gemini_home / "trustedFolders.json"
+    trusted_folders.write_text(
+        '{"trustedFolders":["/workspace/agents"]}',
+        encoding="utf-8",
+    )
+    installation_id = gemini_home / "installation_id"
+    installation_id.write_text("worker-installation", encoding="utf-8")
 
     sentinel_vault = object()
     monkeypatch.setattr(
@@ -381,15 +403,24 @@ def test_persist_gemini_auth_files_reads_available_files(
         lambda: sentinel_vault,
     )
     recorded: list[tuple[Any, str, str, str]] = []
+    deleted: list[tuple[Any, str]] = []
 
     def fake_upsert(
         vault: Any, credential_name: str, provider: str, secret: str
     ) -> None:
         recorded.append((vault, credential_name, provider, secret))
 
+    def fake_delete(vault: Any, credential_name: str) -> bool:
+        deleted.append((vault, credential_name))
+        return True
+
     monkeypatch.setattr(
         "orcheo_backend.worker.external_agents.upsert_external_agent_secret",
         fake_upsert,
+    )
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.delete_external_agent_secret",
+        fake_delete,
     )
 
     _persist_gemini_auth_files_to_vault({"HOME": str(tmp_path)})
@@ -397,16 +428,21 @@ def test_persist_gemini_auth_files_reads_available_files(
     assert recorded == [
         (
             sentinel_vault,
-            GEMINI_GOOGLE_ACCOUNTS_JSON_CREDENTIAL_NAME,
+            GEMINI_AUTH_JSON_CREDENTIAL_NAME,
             "gemini",
-            '{"active":{}}',
+            (
+                '{"files":{"google_accounts.json":"{\\"active\\":{}}",'
+                '"installation_id":"worker-installation",'
+                '"state.json":"{\\"tipsShown\\":{}}",'
+                '"trustedFolders.json":"{\\"trustedFolders\\":[\\"/workspace/agents\\"]}"},'
+                '"version":1}'
+            ),
         ),
-        (
-            sentinel_vault,
-            GEMINI_STATE_JSON_CREDENTIAL_NAME,
-            "gemini",
-            '{"tipsShown":{}}',
-        ),
+    ]
+    assert deleted == [
+        (sentinel_vault, GEMINI_GOOGLE_ACCOUNTS_JSON_CREDENTIAL_NAME),
+        (sentinel_vault, GEMINI_STATE_JSON_CREDENTIAL_NAME),
+        (sentinel_vault, GEMINI_OAUTH_CREDS_JSON_CREDENTIAL_NAME),
     ]
 
 
@@ -788,7 +824,13 @@ def test_clear_provider_auth_state_removes_gemini_secrets_and_files(
 ) -> None:
     gemini_home = tmp_path / ".gemini"
     gemini_home.mkdir()
-    for name in ("google_accounts.json", "state.json", "oauth_creds.json"):
+    for name in (
+        "google_accounts.json",
+        "state.json",
+        "oauth_creds.json",
+        "trustedFolders.json",
+        "installation_id",
+    ):
         (gemini_home / name).write_text("{}", encoding="utf-8")
 
     sentinel_vault = object()
@@ -813,11 +855,12 @@ def test_clear_provider_auth_state_removes_gemini_secrets_and_files(
     )
 
     assert deleted == [
+        (sentinel_vault, GEMINI_AUTH_JSON_CREDENTIAL_NAME),
         (sentinel_vault, GEMINI_GOOGLE_ACCOUNTS_JSON_CREDENTIAL_NAME),
         (sentinel_vault, GEMINI_STATE_JSON_CREDENTIAL_NAME),
         (sentinel_vault, GEMINI_OAUTH_CREDS_JSON_CREDENTIAL_NAME),
     ]
-    assert list(gemini_home.glob("*.json")) == []
+    assert not gemini_home.exists()
 
 
 def test_clear_provider_auth_state_removes_claude_secret(
@@ -905,6 +948,7 @@ def test_clear_provider_auth_state_ignores_unknown_provider(
         (
             ExternalAgentProviderName.GEMINI,
             {
+                "GEMINI_AUTH_JSON": "",
                 "GEMINI_GOOGLE_ACCOUNTS_JSON": "",
                 "GEMINI_STATE_JSON": "",
                 "GEMINI_OAUTH_CREDS_JSON": "",
