@@ -3,6 +3,7 @@
 from __future__ import annotations
 from pydantic import Field
 from orcheo.external_agents.providers.gemini import (
+    GEMINI_AUTH_JSON_ENV_VAR,
     GEMINI_GOOGLE_ACCOUNTS_JSON_ENV_VAR,
     GEMINI_OAUTH_CREDS_JSON_ENV_VAR,
     GEMINI_STATE_JSON_ENV_VAR,
@@ -23,7 +24,12 @@ class GeminiNode(ExternalAgentNode):
 
     provider_name = "gemini"
     optional_auth_fields = frozenset(
-        {"google_accounts_json", "state_json", "oauth_creds_json"}
+        {"auth_json", "google_accounts_json", "state_json", "oauth_creds_json"}
+    )
+
+    auth_json: str | None = Field(
+        default="[[GEMINI_AUTH_JSON]]",
+        description="Optional bundled Gemini auth payload resolved from the vault.",
     )
 
     google_accounts_json: str | None = Field(
@@ -46,6 +52,8 @@ class GeminiNode(ExternalAgentNode):
     def auth_environment_overrides(self) -> dict[str, str]:
         """Materialize Gemini auth files from the configured templates."""
         overrides: dict[str, str] = {}
+        if self.auth_json:
+            overrides[GEMINI_AUTH_JSON_ENV_VAR] = self.auth_json
         if self.google_accounts_json:
             overrides[GEMINI_GOOGLE_ACCOUNTS_JSON_ENV_VAR] = self.google_accounts_json
         if self.state_json:

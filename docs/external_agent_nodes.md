@@ -76,6 +76,7 @@ claude
 - Manual login:
 
 ```bash
+cd /workspace/agents
 gemini /auth signin
 ```
 
@@ -83,11 +84,12 @@ gemini /auth signin
   exposes supported Gemini credentials such as `GEMINI_API_KEY`, or Vertex AI
   credentials such as `GOOGLE_GENAI_USE_VERTEXAI=true` with the required Google
   Cloud environment.
-- For Google-account login portability across workers, Orcheo persists and
-  restores these files when they exist:
-  - `~/.gemini/google_accounts.json`
-  - `~/.gemini/state.json`
-  - `~/.gemini/oauth_creds.json`
+- Orcheo starts Gemini sign-in from `/workspace/agents` so Gemini can record
+  that trusted folder in `~/.gemini/trustedFolders.json`.
+- For Google-account login portability across workers, Orcheo persists a single
+  versioned `GEMINI_AUTH_JSON` vault secret whose `files` object contains every
+  `~/.gemini/*.json` file plus any `installation_id` files, then restores them
+  before auth probes and runs.
 
 ## Node Contract
 

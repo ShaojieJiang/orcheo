@@ -238,12 +238,16 @@ def test_gemini_node_auth_environment_overrides_returns_files() -> None:
         name="gemini_overrides",
         prompt="cleanup",
         working_directory=".",
+        auth_json='{"version":1,"files":{"trustedFolders.json":"{\\"trustedFolders\\":[]}"}}',
         google_accounts_json='{"active":{}}',
         state_json='{"tipsShown":{}}',
         oauth_creds_json='{"tokens":{}}',
     )
 
     assert node.auth_environment_overrides() == {
+        "GEMINI_AUTH_JSON": (
+            '{"version":1,"files":{"trustedFolders.json":"{\\"trustedFolders\\":[]}"}}'
+        ),
         "GEMINI_GOOGLE_ACCOUNTS_JSON": '{"active":{}}',
         "GEMINI_STATE_JSON": '{"tipsShown":{}}',
         "GEMINI_OAUTH_CREDS_JSON": '{"tokens":{}}',
@@ -256,6 +260,7 @@ def test_gemini_node_auth_environment_overrides_skips_empty_values() -> None:
         prompt="cleanup",
         working_directory=".",
     )
+    node.auth_json = None
     node.google_accounts_json = None
     node.state_json = None
     node.oauth_creds_json = None

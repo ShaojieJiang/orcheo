@@ -32,6 +32,7 @@ from orcheo.external_agents.providers.base import NpmCliProvider
 from orcheo.external_agents.providers.claude_code import ClaudeCodeProvider
 from orcheo.external_agents.providers.codex import CodexProvider
 from orcheo.external_agents.providers.gemini import (
+    GEMINI_AUTH_JSON_ENV_VAR,
     GEMINI_GOOGLE_ACCOUNTS_JSON_ENV_VAR,
     GEMINI_OAUTH_CREDS_JSON_ENV_VAR,
     GEMINI_STATE_JSON_ENV_VAR,
@@ -879,6 +880,37 @@ def test_gemini_provider_build_environment_restores_auth_files(
     )
 
 
+def test_gemini_provider_build_environment_restores_bundled_auth_payload(
+    tmp_path: Path,
+) -> None:
+    provider = GeminiProvider()
+    home = tmp_path / "home"
+    home.mkdir()
+
+    provider.build_environment(
+        {
+            "HOME": str(home),
+            GEMINI_AUTH_JSON_ENV_VAR: (
+                '{"version":1,"files":{'
+                '"trustedFolders.json":"{\\"trustedFolders\\":[\\"/workspace/agents\\"]}",'
+                '"installation_id":"worker-installation",'
+                '"nested/extra.json":"{\\"hello\\":\\"world\\"}"}}'
+            ),
+        }
+    )
+
+    gemini_home = home / ".gemini"
+    assert (gemini_home / "trustedFolders.json").read_text(encoding="utf-8") == (
+        '{"trustedFolders":["/workspace/agents"]}'
+    )
+    assert (gemini_home / "installation_id").read_text(encoding="utf-8") == (
+        "worker-installation"
+    )
+    assert (gemini_home / "nested" / "extra.json").read_text(encoding="utf-8") == (
+        '{"hello":"world"}'
+    )
+
+
 def test_gemini_provider_probe_auth_uses_env_or_cached_google_login(
     tmp_path: Path,
 ) -> None:
@@ -893,20 +925,104 @@ def test_gemini_provider_probe_auth_uses_env_or_cached_google_login(
 
     env_auth = provider.probe_auth(
         runtime,
-        environ={GEMINI_GOOGLE_ACCOUNTS_JSON_ENV_VAR: '{"active":{}}'},
+        environ={GEMINI_OAUTH_CREDS_JSON_ENV_VAR: '{"tokens":{}}'},
     )
     assert env_auth.status == AuthStatus.AUTHENTICATED
 
     home = tmp_path / "home"
     gemini_home = home / ".gemini"
     gemini_home.mkdir(parents=True)
-    (gemini_home / "google_accounts.json").write_text("{}", encoding="utf-8")
+    (gemini_home / "oauth_creds.json").write_text("{}", encoding="utf-8")
 
     cached_auth = provider.probe_auth(runtime, environ={"HOME": str(home)})
     assert cached_auth.status == AuthStatus.AUTHENTICATED
 
+    bundled_auth = provider.probe_auth(
+        runtime,
+        environ={
+            GEMINI_AUTH_JSON_ENV_VAR: (
+                '{"version":1,"files":{"oauth_creds.json":"{\\"tokens\\":{}}"}}'
+            )
+        },
+    )
+    assert bundled_auth.status == AuthStatus.AUTHENTICATED
+
     missing_auth = provider.probe_auth(runtime, environ={"HOME": str(tmp_path / "x")})
     assert missing_auth.status == AuthStatus.SETUP_NEEDED
+
+
+def test_gemini_provider_probe_auth_rejects_incomplete_google_login(
+    tmp_path: Path,
+) -> None:
+    provider = GeminiProvider()
+    runtime = ResolvedRuntime(
+        provider="gemini",
+        version="0.36.0",
+        install_dir=tmp_path,
+        executable_path=tmp_path / "bin" / "gemini",
+        package_name=provider.package_name,
+    )
+
+    home = tmp_path / "home"
+    gemini_home = home / ".gemini"
+    gemini_home.mkdir(parents=True)
+    (gemini_home / "google_accounts.json").write_text("{}", encoding="utf-8")
+    (gemini_home / "state.json").write_text("{}", encoding="utf-8")
+
+    result = provider.probe_auth(runtime, environ={"HOME": str(home)})
+
+    assert result.status == AuthStatus.SETUP_NEEDED
+
+
+def test_gemini_provider_serializes_json_and_installation_id_files(
+    tmp_path: Path,
+) -> None:
+    provider = GeminiProvider()
+    home = tmp_path / "home"
+    gemini_home = home / ".gemini"
+    (gemini_home / "nested").mkdir(parents=True)
+    (gemini_home / "state.json").write_text('{"tipsShown":{}}', encoding="utf-8")
+    (gemini_home / "trustedFolders.json").write_text(
+        '{"trustedFolders":["/workspace/agents"]}',
+        encoding="utf-8",
+    )
+    (gemini_home / "nested" / "installation_id").write_text(
+        "worker-installation",
+        encoding="utf-8",
+    )
+
+    payload = provider.serialize_auth_payload({"HOME": str(home)})
+
+    assert payload is not None
+    assert payload == (
+        '{"files":{"nested/installation_id":"worker-installation",'
+        '"state.json":"{\\"tipsShown\\":{}}",'
+        '"trustedFolders.json":"{\\"trustedFolders\\":[\\"/workspace/agents\\"]}"},'
+        '"version":1}'
+    )
+
+
+def test_gemini_provider_restore_auth_payload_accepts_legacy_flat_mapping(
+    tmp_path: Path,
+) -> None:
+    provider = GeminiProvider()
+    home = tmp_path / "home"
+    home.mkdir()
+
+    provider.build_environment(
+        {
+            "HOME": str(home),
+            GEMINI_AUTH_JSON_ENV_VAR: (
+                '{"oauth_creds.json":"{\\"tokens\\":{}}","installation_id":"legacy"}'
+            ),
+        }
+    )
+
+    gemini_home = home / ".gemini"
+    assert (gemini_home / "oauth_creds.json").read_text(encoding="utf-8") == (
+        '{"tokens":{}}'
+    )
+    assert (gemini_home / "installation_id").read_text(encoding="utf-8") == "legacy"
 
 
 def test_gemini_provider_probe_auth_accepts_vertex_ai_configuration(
@@ -956,6 +1072,125 @@ def test_gemini_provider_builds_expected_command_without_system_prompt() -> None
         "--output-format",
         "text",
     ]
+
+
+def test_gemini_provider_serialize_returns_none_when_no_auth_files(
+    tmp_path: Path,
+) -> None:
+    """serialize_auth_payload returns None when the .gemini directory is absent."""
+    provider = GeminiProvider()
+    result = provider.serialize_auth_payload({"HOME": str(tmp_path)})
+    assert result is None
+
+
+def test_gemini_provider_auth_artifact_paths_skips_glob_when_home_missing(
+    tmp_path: Path,
+) -> None:
+    """auth_artifact_paths still returns required paths even when gemini_home is absent."""  # noqa: E501
+    provider = GeminiProvider()
+    home = tmp_path / "missing_home"
+    paths = provider.auth_artifact_paths({"HOME": str(home)})
+    # Required paths are always appended even if the directory does not exist.
+    assert provider.oauth_creds_path({"HOME": str(home)}) in paths
+
+
+def test_gemini_provider_restore_auth_payload_rejects_non_dict() -> None:
+    """restore_auth_payload raises ValueError when the payload is not a JSON object."""
+    provider = GeminiProvider()
+    with pytest.raises(ValueError, match="must decode to a JSON object"):
+        provider.restore_auth_payload('["not", "a", "dict"]')
+
+
+def test_gemini_provider_restore_auth_payload_rejects_unsupported_version(
+    tmp_path: Path,
+) -> None:
+    """restore_auth_payload raises ValueError when the bundled version is unsupported."""  # noqa: E501
+    provider = GeminiProvider()
+    with pytest.raises(ValueError, match="version is unsupported"):
+        provider.restore_auth_payload(
+            '{"version":2,"files":{"state.json":"{}"}}',
+            environ={"HOME": str(tmp_path)},
+        )
+
+
+def test_gemini_provider_restore_auth_payload_rejects_non_dict_files(
+    tmp_path: Path,
+) -> None:
+    """restore_auth_payload raises ValueError when 'files' is not a JSON object."""
+    provider = GeminiProvider()
+    with pytest.raises(ValueError, match=r"files must decode to a JSON object"):
+        provider.restore_auth_payload(
+            '{"version":1,"files":["not","a","dict"]}',
+            environ={"HOME": str(tmp_path)},
+        )
+
+
+def test_gemini_provider_restore_auth_payload_rejects_absolute_path(
+    tmp_path: Path,
+) -> None:
+    """restore_auth_payload raises ValueError for an absolute artifact path."""
+    provider = GeminiProvider()
+    with pytest.raises(ValueError, match="invalid artifact path"):
+        provider.restore_auth_payload(
+            '{"version":1,"files":{"/etc/passwd":"sensitive"}}',
+            environ={"HOME": str(tmp_path)},
+        )
+
+
+def test_gemini_provider_restore_auth_payload_rejects_path_traversal(
+    tmp_path: Path,
+) -> None:
+    """restore_auth_payload raises ValueError for a path containing '..'."""
+    provider = GeminiProvider()
+    with pytest.raises(ValueError, match="invalid artifact path"):
+        provider.restore_auth_payload(
+            '{"version":1,"files":{"../escape.json":"{}"}}',
+            environ={"HOME": str(tmp_path)},
+        )
+
+
+def test_gemini_provider_restore_auth_payload_rejects_non_string_contents(
+    tmp_path: Path,
+) -> None:
+    """restore_auth_payload raises ValueError when file contents are not a string."""
+    provider = GeminiProvider()
+    with pytest.raises(ValueError, match="artifact paths to string contents"):
+        provider.restore_auth_payload(
+            '{"version":1,"files":{"state.json":42}}',
+            environ={"HOME": str(tmp_path)},
+        )
+
+
+def test_gemini_provider_auth_file_candidates_returns_oauth_creds_path(
+    tmp_path: Path,
+) -> None:
+    """_auth_file_candidates returns a tuple containing only the oauth_creds path."""
+    provider = GeminiProvider()
+    environ = {"HOME": str(tmp_path)}
+    candidates = provider._auth_file_candidates(environ)
+    assert candidates == (provider.oauth_creds_path(environ),)
+
+
+def test_gemini_provider_probe_auth_authenticated_via_api_key(
+    tmp_path: Path,
+) -> None:
+    """probe_auth returns AUTHENTICATED immediately when GEMINI_API_KEY is set."""
+    provider = GeminiProvider()
+    runtime = ResolvedRuntime(
+        provider="gemini",
+        version="0.36.0",
+        install_dir=tmp_path,
+        executable_path=tmp_path / "bin" / "gemini",
+        package_name=provider.package_name,
+    )
+    result = provider.probe_auth(
+        runtime,
+        environ={
+            "HOME": str(tmp_path / "home"),
+            "GEMINI_API_KEY": "AIza-test-key",
+        },
+    )
+    assert result.status == AuthStatus.AUTHENTICATED
 
 
 def test_provider_version_parsing_and_auth_probes(

@@ -7,6 +7,7 @@ from orcheo_backend.app.external_agent_auth import (
     CLAUDE_CODE_OAUTH_TOKEN_CREDENTIAL_NAME,
     CODEX_AUTH_JSON_CREDENTIAL_NAME,
     CODEX_AUTH_JSON_ENV_VAR,
+    GEMINI_AUTH_JSON_CREDENTIAL_NAME,
     GEMINI_GOOGLE_ACCOUNTS_JSON_CREDENTIAL_NAME,
     GEMINI_OAUTH_CREDS_JSON_CREDENTIAL_NAME,
     GEMINI_STATE_JSON_CREDENTIAL_NAME,
@@ -52,6 +53,10 @@ def test_load_external_agent_vault_environment_materializes_all_secrets() -> Non
         id=uuid4(),
         name=CODEX_AUTH_JSON_CREDENTIAL_NAME,
     )
+    gemini_auth = SimpleNamespace(
+        id=uuid4(),
+        name=GEMINI_AUTH_JSON_CREDENTIAL_NAME,
+    )
     gemini_accounts = SimpleNamespace(
         id=uuid4(),
         name=GEMINI_GOOGLE_ACCOUNTS_JSON_CREDENTIAL_NAME,
@@ -67,6 +72,7 @@ def test_load_external_agent_vault_environment_materializes_all_secrets() -> Non
     vault.list_all_credentials.return_value = [
         claude,
         codex,
+        gemini_auth,
         gemini_accounts,
         gemini_state,
         gemini_oauth,
@@ -77,6 +83,8 @@ def test_load_external_agent_vault_environment_materializes_all_secrets() -> Non
             return "claude-token"
         if credential_id == codex.id:
             return '{"auth": "json"}'
+        if credential_id == gemini_auth.id:
+            return '{"version":1,"files":{"trustedFolders.json":"{\\"trustedFolders\\":[]}"}}'  # noqa: E501
         if credential_id == gemini_accounts.id:
             return '{"accounts": []}'
         if credential_id == gemini_state.id:
@@ -92,6 +100,9 @@ def test_load_external_agent_vault_environment_materializes_all_secrets() -> Non
     assert environ == {
         "CLAUDE_CODE_OAUTH_TOKEN": "claude-token",
         CODEX_AUTH_JSON_ENV_VAR: '{"auth": "json"}',
+        "GEMINI_AUTH_JSON": (
+            '{"version":1,"files":{"trustedFolders.json":"{\\"trustedFolders\\":[]}"}}'
+        ),
         "GEMINI_GOOGLE_ACCOUNTS_JSON": '{"accounts": []}',
         "GEMINI_STATE_JSON": '{"state": {}}',
         "GEMINI_OAUTH_CREDS_JSON": '{"oauth": {}}',

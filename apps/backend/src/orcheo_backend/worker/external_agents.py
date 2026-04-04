@@ -6,6 +6,7 @@ import os
 import pty
 import re
 import selectors
+import shutil
 import signal
 import struct
 import subprocess
@@ -21,6 +22,7 @@ from urllib.parse import urlsplit
 from orcheo.external_agents import ExternalAgentRuntimeManager, RuntimeInstallError
 from orcheo.external_agents.models import ResolvedRuntime
 from orcheo.external_agents.providers.gemini import (
+    GEMINI_AUTH_JSON_ENV_VAR,
     GEMINI_GOOGLE_ACCOUNTS_JSON_ENV_VAR,
     GEMINI_OAUTH_CREDS_JSON_ENV_VAR,
     GEMINI_STATE_JSON_ENV_VAR,
@@ -30,6 +32,7 @@ from orcheo_backend.app.dependencies import get_external_agent_runtime_store, ge
 from orcheo_backend.app.external_agent_auth import (
     CLAUDE_CODE_OAUTH_TOKEN_CREDENTIAL_NAME,
     CODEX_AUTH_JSON_CREDENTIAL_NAME,
+    GEMINI_AUTH_JSON_CREDENTIAL_NAME,
     GEMINI_GOOGLE_ACCOUNTS_JSON_CREDENTIAL_NAME,
     GEMINI_OAUTH_CREDS_JSON_CREDENTIAL_NAME,
     GEMINI_STATE_JSON_CREDENTIAL_NAME,
@@ -58,6 +61,7 @@ LOGIN_HEARTBEAT_SECONDS = 2.0
 LOGIN_SESSION_STALE_SECONDS = 10.0
 LOGIN_PTY_ROWS = 60
 LOGIN_PTY_COLS = 240
+GEMINI_SIGNIN_WORKING_DIRECTORY = Path("/workspace/agents")
 ANSI_ESCAPE_PATTERN = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 CONTROL_CHAR_PATTERN = re.compile(r"[\x00-\x08\x0b-\x1a\x1c-\x1f\x7f]")
 URL_PATTERN = re.compile(r"https?://[^\s]+")
@@ -172,14 +176,21 @@ def _gemini_auth_file_paths(
 def _persist_gemini_auth_files_to_vault(environ: Mapping[str, str]) -> None:
     """Persist any available Gemini auth files to the unrestricted vault."""
     vault = get_vault()
-    for credential_name, auth_file in _gemini_auth_file_paths(environ).items():
-        if not auth_file.exists():
-            continue
-        upsert_external_agent_secret(
+    provider = _gemini_provider()
+    bundled_payload = provider.serialize_auth_payload(environ)
+    if not bundled_payload:
+        return
+
+    upsert_external_agent_secret(
+        vault,
+        credential_name=GEMINI_AUTH_JSON_CREDENTIAL_NAME,
+        provider="gemini",
+        secret=bundled_payload,
+    )
+    for credential_name in _gemini_auth_file_paths(environ):
+        delete_external_agent_secret(
             vault,
             credential_name=credential_name,
-            provider="gemini",
-            secret=auth_file.read_text(encoding="utf-8"),
         )
 
 
@@ -431,6 +442,15 @@ def _gemini_auto_enter_prompt_id(output: str) -> str | None:
     return None
 
 
+def _should_retry_gemini_login(output: str) -> bool:
+    """Return whether Gemini requested a one-time CLI restart during login."""
+    normalized = _normalize_terminal_line(output)
+    return (
+        "logginginwithgoogle...restartinggeminiclitocontinue." in normalized
+        or "restartinggeminiclitocontinue." in normalized
+    )
+
+
 def _prefix_before_store_marker(line: str) -> tuple[str, bool]:
     """Return any token content before the Claude storage warning marker."""
     lowered = line.lower()
@@ -638,6 +658,7 @@ def _run_login_command(  # noqa: C901, PLR0915
     command: list[str],
     *,
     env: Mapping[str, str],
+    cwd: Path | None = None,
     on_output: Callable[[str, str | None, str | None], None],
     consume_input: Callable[[bool], str | None] | None = None,
     auto_input: Callable[[str], str | None] | None = None,
@@ -670,6 +691,7 @@ def _run_login_command(  # noqa: C901, PLR0915
             stdout=slave_fd,
             stderr=slave_fd,
             env=dict(env),
+            cwd=str(cwd) if cwd is not None else None,
             start_new_session=True,
             close_fds=True,
         )
@@ -834,6 +856,13 @@ def _delete_file_if_present(path: Path) -> None:
         return
 
 
+def _delete_directory_if_present(path: Path) -> None:
+    """Delete ``path`` recursively if it exists."""
+    if not path.exists():
+        return
+    shutil.rmtree(path, ignore_errors=True)
+
+
 def _logout_provider_cli(
     provider_id: ExternalAgentProviderName,
     runtime: ResolvedRuntime | None,
@@ -910,6 +939,10 @@ def _clear_provider_auth_state(
     if provider_id == ExternalAgentProviderName.GEMINI:
         delete_external_agent_secret(
             vault,
+            credential_name=GEMINI_AUTH_JSON_CREDENTIAL_NAME,
+        )
+        delete_external_agent_secret(
+            vault,
             credential_name=GEMINI_GOOGLE_ACCOUNTS_JSON_CREDENTIAL_NAME,
         )
         delete_external_agent_secret(
@@ -920,8 +953,9 @@ def _clear_provider_auth_state(
             vault,
             credential_name=GEMINI_OAUTH_CREDS_JSON_CREDENTIAL_NAME,
         )
-        for auth_file in _gemini_auth_file_paths(provider_environ).values():
-            _delete_file_if_present(auth_file)
+        _delete_directory_if_present(
+            _gemini_provider().gemini_home_path(provider_environ)
+        )
 
 
 def _provider_environment_reset(
@@ -934,11 +968,29 @@ def _provider_environment_reset(
         return {"CODEX_AUTH_JSON": ""}
     if provider_id == ExternalAgentProviderName.GEMINI:
         return {
+            GEMINI_AUTH_JSON_ENV_VAR: "",
             GEMINI_GOOGLE_ACCOUNTS_JSON_ENV_VAR: "",
             GEMINI_STATE_JSON_ENV_VAR: "",
             GEMINI_OAUTH_CREDS_JSON_ENV_VAR: "",
         }
     return {}
+
+
+def _gemini_login_working_directory() -> Path:
+    """Return the Gemini sign-in directory that should be trusted."""
+    try:
+        GEMINI_SIGNIN_WORKING_DIRECTORY.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return Path.cwd()
+    return GEMINI_SIGNIN_WORKING_DIRECTORY
+
+
+def _delete_provider_runtime_installation(
+    manager: ExternalAgentRuntimeManager,
+    provider_name: str,
+) -> None:
+    """Delete one provider's managed runtime installation tree."""
+    _delete_directory_if_present(manager.runtime_root / provider_name)
 
 
 async def disconnect_external_agent_async(provider_name: str) -> dict[str, str]:
@@ -957,6 +1009,8 @@ async def disconnect_external_agent_async(provider_name: str) -> dict[str, str]:
         provider_name,
         _provider_environment_reset(provider_id),
     )
+    if provider_id == ExternalAgentProviderName.GEMINI:
+        _delete_provider_runtime_installation(manager, provider_name)
     runtime_store.save_provider_environment(provider_id, {})
     _mark_provider_session_disconnected(runtime_store, provider_id)
     return await refresh_external_agent_status_async(provider_name)
@@ -1283,18 +1337,6 @@ async def start_external_agent_login_async(  # noqa: C901, PLR0915
                 return None
             return runtime_store.get_login_input(session_id)
 
-        gemini_auto_enter_prompts_sent: set[str] = set()
-
-        def auto_login_input(output: str) -> str | None:
-            """Return provider-specific automatic PTY input when it is safe."""
-            if provider_id != ExternalAgentProviderName.GEMINI:
-                return None
-            prompt_id = _gemini_auto_enter_prompt_id(output)
-            if prompt_id is None or prompt_id in gemini_auto_enter_prompts_sent:
-                return None
-            gemini_auto_enter_prompts_sent.add(prompt_id)
-            return ""
-
         def heartbeat_session() -> None:
             """Keep the login session fresh while the worker process is alive."""
             current = runtime_store.get_login_session(session_id)
@@ -1304,18 +1346,52 @@ async def start_external_agent_login_async(  # noqa: C901, PLR0915
                 current.model_copy(update={"updated_at": _utcnow()})
             )
 
-        result = _run_login_command(
-            provider.oauth_login_command(runtime),
-            env=provider.build_environment(provider_environ),
-            on_output=on_output,
-            consume_input=manage_login_input,
-            auto_input=auto_login_input,
-            is_authenticated=lambda: provider.probe_auth(
-                runtime,
-                environ=manager.environment_for_provider(provider_name),
-            ).authenticated,
-            on_tick=heartbeat_session,
-        )
+        result: LoginCommandResult | None = None
+        login_attempts = 2 if provider_id == ExternalAgentProviderName.GEMINI else 1
+        for attempt in range(login_attempts):  # pragma: no branch
+            gemini_auto_enter_prompts_sent: set[str] = set()
+
+            def auto_login_input(
+                output: str,
+                prompts_sent: set[str] = gemini_auto_enter_prompts_sent,
+            ) -> str | None:
+                """Return provider-specific automatic PTY input when it is safe."""
+                if provider_id != ExternalAgentProviderName.GEMINI:
+                    return None
+                prompt_id = _gemini_auto_enter_prompt_id(output)
+                if prompt_id is None or prompt_id in prompts_sent:
+                    return None
+                prompts_sent.add(prompt_id)
+                return ""
+
+            result = _run_login_command(
+                provider.oauth_login_command(runtime),
+                env=provider.build_environment(provider_environ),
+                cwd=(
+                    _gemini_login_working_directory()
+                    if provider_id == ExternalAgentProviderName.GEMINI
+                    else None
+                ),
+                on_output=on_output,
+                consume_input=manage_login_input,
+                auto_input=auto_login_input,
+                is_authenticated=lambda: provider.probe_auth(
+                    runtime,
+                    environ=manager.environment_for_provider(provider_name),
+                ).authenticated,
+                on_tick=heartbeat_session,
+            )
+            if (
+                provider_id == ExternalAgentProviderName.GEMINI
+                and attempt + 1 < login_attempts
+                and not result.auth_url
+                and not result.device_code
+                and _should_retry_gemini_login(result.output)
+            ):
+                continue
+            break
+
+        assert result is not None
         if result.auth_token:
             _persist_claude_oauth_token_to_vault(result.auth_token)
             provider_environ["CLAUDE_CODE_OAUTH_TOKEN"] = result.auth_token
