@@ -36,11 +36,13 @@ from orcheo_backend.worker.external_agents import (
     _has_gemini_auth_method_prompt,
     _has_gemini_trust_prompt,
     _initial_login_detail,
+    _logout_provider_cli,
     _mark_provider_session_disconnected,
     _normalize_terminal_line,
     _persist_codex_auth_json_to_vault,
     _persist_gemini_auth_files_to_vault,
     _prefix_before_store_marker,
+    _provider_environment_reset,
     _redact_sensitive_output,
     _sync_authenticated_provider_to_vault,
     _terminate_process_group,
@@ -711,6 +713,75 @@ def test_delete_file_if_present_handles_missing(tmp_path: Path) -> None:
     assert not missing.exists()
 
 
+def test_logout_provider_cli_returns_early_without_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *args, **kwargs: pytest.fail("subprocess.run should not be called"),
+    )
+
+    _logout_provider_cli(ExternalAgentProviderName.CODEX, None, {})
+
+
+@pytest.mark.parametrize(
+    ("provider_id", "expected_command"),
+    [
+        (
+            ExternalAgentProviderName.CLAUDE_CODE,
+            ["/tmp/runtime/bin/tool", "auth", "logout"],
+        ),
+        (
+            ExternalAgentProviderName.CODEX,
+            ["/tmp/runtime/bin/tool", "logout"],
+        ),
+    ],
+)
+def test_logout_provider_cli_runs_provider_specific_command(
+    monkeypatch: pytest.MonkeyPatch,
+    provider_id: ExternalAgentProviderName,
+    expected_command: list[str],
+) -> None:
+    runtime = SimpleNamespace(executable_path=Path("/tmp/runtime/bin/tool"))
+    calls: list[tuple[list[str], Mapping[str, str]]] = []
+
+    def fake_run(command: list[str], **kwargs: Any) -> None:
+        calls.append((command, kwargs["env"]))
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    _logout_provider_cli(provider_id, runtime, {"HOME": "/tmp/home"})
+
+    assert calls == [(expected_command, {"HOME": "/tmp/home"})]
+
+
+def test_logout_provider_cli_ignores_subprocess_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = SimpleNamespace(executable_path=Path("/tmp/runtime/bin/tool"))
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *args, **kwargs: (_ for _ in ()).throw(subprocess.SubprocessError()),
+    )
+
+    _logout_provider_cli(ExternalAgentProviderName.CODEX, runtime, {})
+
+
+def test_logout_provider_cli_ignores_unsupported_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *args, **kwargs: pytest.fail("subprocess.run should not be called"),
+    )
+    runtime = SimpleNamespace(executable_path=Path("/tmp/runtime/bin/tool"))
+
+    _logout_provider_cli(ExternalAgentProviderName.GEMINI, runtime, {})
+
+
 def test_clear_provider_auth_state_removes_gemini_secrets_and_files(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -749,6 +820,106 @@ def test_clear_provider_auth_state_removes_gemini_secrets_and_files(
     assert list(gemini_home.glob("*.json")) == []
 
 
+def test_clear_provider_auth_state_removes_claude_secret(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sentinel_vault = object()
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.get_vault",
+        lambda: sentinel_vault,
+    )
+    deleted: list[tuple[Any, str]] = []
+
+    def fake_delete(vault: Any, credential_name: str) -> bool:
+        deleted.append((vault, credential_name))
+        return True
+
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.delete_external_agent_secret",
+        fake_delete,
+    )
+
+    _clear_provider_auth_state(ExternalAgentProviderName.CLAUDE_CODE, {})
+
+    assert deleted == [(sentinel_vault, "CLAUDE_CODE_OAUTH_TOKEN")]
+
+
+def test_clear_provider_auth_state_removes_codex_secret_and_auth_file(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    auth_file = tmp_path / "auth.json"
+    auth_file.write_text("{}", encoding="utf-8")
+    sentinel_vault = object()
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.get_vault",
+        lambda: sentinel_vault,
+    )
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents._codex_auth_file_path",
+        lambda environ: auth_file,
+    )
+    deleted: list[tuple[Any, str]] = []
+
+    def fake_delete(vault: Any, credential_name: str) -> bool:
+        deleted.append((vault, credential_name))
+        return True
+
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.delete_external_agent_secret",
+        fake_delete,
+    )
+
+    _clear_provider_auth_state(ExternalAgentProviderName.CODEX, {})
+
+    assert deleted == [(sentinel_vault, "CODEX_AUTH_JSON")]
+    assert not auth_file.exists()
+
+
+def test_clear_provider_auth_state_ignores_unknown_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.get_vault",
+        lambda: object(),
+    )
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.delete_external_agent_secret",
+        lambda *args, **kwargs: pytest.fail("no secrets should be deleted"),
+    )
+
+    _clear_provider_auth_state("other", {})  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    ("provider_id", "expected"),
+    [
+        (
+            ExternalAgentProviderName.CLAUDE_CODE,
+            {"CLAUDE_CODE_OAUTH_TOKEN": ""},
+        ),
+        (
+            ExternalAgentProviderName.CODEX,
+            {"CODEX_AUTH_JSON": ""},
+        ),
+        (
+            ExternalAgentProviderName.GEMINI,
+            {
+                "GEMINI_GOOGLE_ACCOUNTS_JSON": "",
+                "GEMINI_STATE_JSON": "",
+                "GEMINI_OAUTH_CREDS_JSON": "",
+            },
+        ),
+        ("other", {}),
+    ],
+)
+def test_provider_environment_reset_variants(
+    provider_id: ExternalAgentProviderName | str,
+    expected: dict[str, str],
+) -> None:
+    assert _provider_environment_reset(provider_id) == expected  # type: ignore[arg-type]
+
+
 def test_mark_provider_session_disconnected_clears_active_session(
     runtime_store: ExternalAgentRuntimeStore,
 ) -> None:
@@ -782,6 +953,60 @@ def test_mark_provider_session_disconnected_clears_active_session(
     assert (
         runtime_store.get_provider_status(
             ExternalAgentProviderName.GEMINI
+        ).active_session_id
+        is None
+    )
+
+
+def test_mark_provider_session_disconnected_with_terminal_session_only_clears_input(
+    runtime_store: ExternalAgentRuntimeStore,
+) -> None:
+    now = datetime.now(UTC)
+    session = ExternalAgentLoginSession(
+        session_id="sess",
+        provider=ExternalAgentProviderName.CODEX,
+        display_name="Codex",
+        state=ExternalAgentLoginSessionState.AUTHENTICATED,
+        created_at=now,
+        updated_at=now,
+        completed_at=now,
+    )
+    runtime_store.save_login_session(session)
+    runtime_store.save_login_input("sess", "CODE-1234")
+    runtime_store.save_provider_status(
+        runtime_store.get_provider_status(ExternalAgentProviderName.CODEX).model_copy(
+            update={"active_session_id": "sess"}
+        )
+    )
+
+    _mark_provider_session_disconnected(
+        runtime_store,
+        ExternalAgentProviderName.CODEX,
+    )
+
+    updated_session = runtime_store.get_login_session("sess")
+    assert updated_session is not None
+    assert updated_session.state == ExternalAgentLoginSessionState.AUTHENTICATED
+    assert runtime_store.get_login_input("sess") is None
+    assert (
+        runtime_store.get_provider_status(
+            ExternalAgentProviderName.CODEX
+        ).active_session_id
+        is None
+    )
+
+
+def test_mark_provider_session_disconnected_without_active_session(
+    runtime_store: ExternalAgentRuntimeStore,
+) -> None:
+    _mark_provider_session_disconnected(
+        runtime_store,
+        ExternalAgentProviderName.CLAUDE_CODE,
+    )
+
+    assert (
+        runtime_store.get_provider_status(
+            ExternalAgentProviderName.CLAUDE_CODE
         ).active_session_id
         is None
     )

@@ -154,7 +154,7 @@ def test_run_login_command_extracts_wrapped_token_before_process_exit() -> None:
     from orcheo_backend.worker.external_agents import _run_login_command
 
     script = (
-        "import os, sys, termios, tty\n"
+        "import os, sys, termios, time, tty\n"
         "fd = sys.stdin.fileno()\n"
         "old = termios.tcgetattr(fd)\n"
         "tty.setraw(fd)\n"
@@ -170,6 +170,7 @@ def test_run_login_command_extracts_wrapped_token_before_process_exit() -> None:
         "print('\\nYour OAuth token (valid for 1 year):\\n', flush=True)\n"
         "print('sk-ant-oat01-verylongtokenpartone', flush=True)\n"
         "print('parttwo', flush=True)\n"
+        "time.sleep(0.05)\n"
         "print('\\nStore this token securely. "
         "You won\\'t be able to see it again.', flush=True)\n"
     )
@@ -538,6 +539,41 @@ def test_run_login_command_clears_input_after_output_and_when_authenticated() ->
 
     assert result.timed_out is False
     assert len(cleared) >= 2
+
+
+def test_run_login_command_uses_auto_input_when_no_queued_input() -> None:
+    from orcheo_backend.worker.external_agents import _run_login_command
+
+    script = (
+        "import os, sys, termios, tty\n"
+        "fd = sys.stdin.fileno()\n"
+        "old = termios.tcgetattr(fd)\n"
+        "tty.setraw(fd)\n"
+        "sys.stdout.write('Paste code> ')\n"
+        "sys.stdout.flush()\n"
+        "chars = []\n"
+        "try:\n"
+        "    while True:\n"
+        "        ch = os.read(fd, 1)\n"
+        "        if ch == b'\\r':\n"
+        "            print('\\nauto:' + ''.join(chars), flush=True)\n"
+        "            break\n"
+        "        chars.append(ch.decode('utf-8', 'replace'))\n"
+        "finally:\n"
+        "    termios.tcsetattr(fd, termios.TCSADRAIN, old)\n"
+    )
+    auto_inputs: list[str] = []
+
+    result = _run_login_command(
+        ["python3", "-c", script],
+        env={},
+        on_output=lambda *_: None,
+        auto_input=lambda output: auto_inputs.append(output) or "ABCD-1234",
+        timeout_seconds=10,
+    )
+
+    assert "auto:ABCD-1234" in result.output
+    assert auto_inputs
 
 
 def test_run_login_command_finalizer_terminates_live_process_on_exception(
@@ -1567,3 +1603,246 @@ async def test_start_login_returns_error_when_unexpected_exception_occurs(
     updated_session = store.get_login_session("unexpected-error")
     assert updated_session is not None
     assert updated_session.state == ExternalAgentLoginSessionState.FAILED
+
+
+@pytest.mark.asyncio
+async def test_start_login_gemini_auto_submits_safe_enter_prompts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo.external_agents.models import (
+        AuthProbeResult,
+        AuthStatus,
+        ResolvedRuntime,
+        RuntimeManifest,
+    )
+    from orcheo_backend.worker.external_agents import start_external_agent_login_async
+
+    store = ExternalAgentRuntimeStore()
+    store._redis = None
+    now = datetime.now(UTC)
+    session = ExternalAgentLoginSession(
+        session_id="gemini-auto-enter",
+        provider=ExternalAgentProviderName.GEMINI,
+        display_name="Gemini CLI",
+        state=ExternalAgentLoginSessionState.PENDING,
+        created_at=now,
+        updated_at=now,
+    )
+    store.save_login_session(session)
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.get_external_agent_runtime_store",
+        lambda: store,
+    )
+
+    runtime = ResolvedRuntime(
+        provider="gemini",
+        version="0.36.0",
+        install_dir=Path("/tmp/gemini"),
+        executable_path=Path("/tmp/gemini/bin/gemini"),
+        package_name="@google/gemini-cli",
+    )
+    manifest = RuntimeManifest(provider="gemini", provider_root=Path("/tmp/gemini"))
+    provider = MagicMock()
+    provider.probe_auth.side_effect = [
+        AuthProbeResult(status=AuthStatus.SETUP_NEEDED, message="login required"),
+        AuthProbeResult(status=AuthStatus.SETUP_NEEDED, message="still waiting"),
+    ]
+    provider.oauth_login_command.return_value = [
+        "/tmp/gemini/bin/gemini",
+        "/auth",
+        "signin",
+    ]
+    provider.build_environment.return_value = {"HOME": "/tmp/gemini-home"}
+    manager = MagicMock()
+    manager.get_provider.return_value = provider
+    manager.inspect_runtime.return_value = (runtime, manifest)
+    manager.environment_for_provider.return_value = {"HOME": "/tmp/gemini-home"}
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.ExternalAgentRuntimeManager",
+        lambda **kwargs: manager,
+    )
+
+    def fake_run_login_command(*args, **kwargs):
+        trust_prompt = """
+        Do you trust the files in this folder?
+        1. Trust folder (app)
+        2. Trust parent folder ()
+        3. Don't trust
+        """
+        auth_prompt = """
+        How would you like to authenticate for this project?
+        1. Sign in with Google
+        2. Use Gemini API Key
+        3. Vertex AI
+        No authentication method selected.
+        (Use Enter to select)
+        """
+        assert kwargs["auto_input"]("Continue in the browser.") is None
+        assert kwargs["auto_input"](trust_prompt) == ""
+        assert kwargs["auto_input"](trust_prompt) is None
+        assert kwargs["auto_input"](auth_prompt) == ""
+        assert kwargs["auto_input"](auth_prompt) is None
+        return MagicMock(
+            auth_token=None,
+            auth_url="https://accounts.google.com/o/oauth2/v2/auth",
+            device_code="ABCD-1234",
+            output="waiting for Gemini auth",
+            timed_out=True,
+        )
+
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents._run_login_command",
+        fake_run_login_command,
+    )
+
+    result = await start_external_agent_login_async("gemini", "gemini-auto-enter")
+
+    assert result == {"status": "timed_out"}
+    updated_session = store.get_login_session("gemini-auto-enter")
+    assert updated_session is not None
+    assert updated_session.state == ExternalAgentLoginSessionState.TIMED_OUT
+    assert updated_session.auth_url == "https://accounts.google.com/o/oauth2/v2/auth"
+    assert updated_session.device_code == "ABCD-1234"
+
+
+@pytest.mark.asyncio
+async def test_disconnect_external_agent_clears_worker_state_and_refreshes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo.external_agents.models import ResolvedRuntime
+    from orcheo_backend.worker.external_agents import disconnect_external_agent_async
+
+    store = ExternalAgentRuntimeStore()
+    store._redis = None
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.get_external_agent_runtime_store",
+        lambda: store,
+    )
+
+    runtime = ResolvedRuntime(
+        provider="codex",
+        version="1.0.0",
+        install_dir=Path("/tmp/codex"),
+        executable_path=Path("/tmp/codex/bin/codex"),
+        package_name="@openai/codex",
+    )
+    manager = MagicMock()
+    manager.inspect_runtime.return_value = (runtime, None)
+    manager.environment_for_provider.return_value = {"CODEX_HOME": "/tmp/codex-home"}
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.ExternalAgentRuntimeManager",
+        lambda **kwargs: manager,
+    )
+
+    calls: list[tuple[str, object, object]] = []
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents._logout_provider_cli",
+        lambda provider_id, runtime_arg, provider_environ: calls.append(
+            ("logout", provider_id, runtime_arg)
+        ),
+    )
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents._clear_provider_auth_state",
+        lambda provider_id, provider_environ: calls.append(
+            ("clear", provider_id, dict(provider_environ))
+        ),
+    )
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents._mark_provider_session_disconnected",
+        lambda runtime_store, provider_id: calls.append(
+            ("mark", provider_id, runtime_store)
+        ),
+    )
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.refresh_external_agent_status_async",
+        AsyncMock(return_value={"status": "needs_login"}),
+    )
+
+    result = await disconnect_external_agent_async("codex")
+
+    assert result == {"status": "needs_login"}
+    manager.save_provider_environment.assert_called_once_with(
+        "codex",
+        {"CODEX_AUTH_JSON": ""},
+    )
+    assert store.get_provider_environment(ExternalAgentProviderName.CODEX) == {}
+    assert calls[0][0] == "logout"
+    assert calls[1] == (
+        "clear",
+        ExternalAgentProviderName.CODEX,
+        {"CODEX_HOME": "/tmp/codex-home"},
+    )
+    assert calls[2][0] == "mark"
+
+
+@pytest.mark.asyncio
+async def test_start_login_non_gemini_auto_input_is_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo.external_agents.models import (
+        AuthProbeResult,
+        AuthStatus,
+        ResolvedRuntime,
+        RuntimeManifest,
+    )
+    from orcheo_backend.worker.external_agents import start_external_agent_login_async
+
+    store = ExternalAgentRuntimeStore()
+    store._redis = None
+    now = datetime.now(UTC)
+    session = ExternalAgentLoginSession(
+        session_id="codex-no-auto-enter",
+        provider=ExternalAgentProviderName.CODEX,
+        display_name="Codex",
+        state=ExternalAgentLoginSessionState.PENDING,
+        created_at=now,
+        updated_at=now,
+    )
+    store.save_login_session(session)
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.get_external_agent_runtime_store",
+        lambda: store,
+    )
+
+    runtime = ResolvedRuntime(
+        provider="codex",
+        version="1.0.0",
+        install_dir=Path("/tmp/codex"),
+        executable_path=Path("/tmp/codex/bin/codex"),
+        package_name="@openai/codex",
+    )
+    manifest = RuntimeManifest(provider="codex", provider_root=Path("/tmp/codex"))
+    provider = MagicMock()
+    provider.probe_auth.side_effect = [
+        AuthProbeResult(status=AuthStatus.SETUP_NEEDED, message="login required"),
+        AuthProbeResult(status=AuthStatus.SETUP_NEEDED, message="still waiting"),
+    ]
+    provider.oauth_login_command.return_value = ["/tmp/codex/bin/codex", "login"]
+    provider.build_environment.return_value = {}
+    manager = MagicMock()
+    manager.get_provider.return_value = provider
+    manager.inspect_runtime.return_value = (runtime, manifest)
+    manager.environment_for_provider.return_value = {}
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.ExternalAgentRuntimeManager",
+        lambda **kwargs: manager,
+    )
+
+    def fake_run_login_command(*args, **kwargs):
+        assert kwargs["auto_input"]("Paste the device code") is None
+        return MagicMock(
+            auth_token=None,
+            auth_url="https://auth.openai.com/oauth/authorize",
+            device_code="CODE-123",
+            output="waiting for device auth",
+            timed_out=True,
+        )
+
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents._run_login_command",
+        fake_run_login_command,
+    )
+
+    result = await start_external_agent_login_async("codex", "codex-no-auto-enter")
+
+    assert result == {"status": "timed_out"}

@@ -837,6 +837,20 @@ def test_gemini_provider_uses_interactive_auth_command() -> None:
     ]
 
 
+def test_gemini_provider_path_helpers_fall_back_to_tilde_home(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = GeminiProvider()
+    monkeypatch.delenv("HOME", raising=False)
+
+    assert provider.gemini_home_path({}) == Path("~/.gemini").expanduser()
+    assert (
+        provider.google_accounts_path({})
+        == Path("~/.gemini/google_accounts.json").expanduser()
+    )
+    assert provider.state_path({}) == Path("~/.gemini/state.json").expanduser()
+
+
 def test_gemini_provider_build_environment_restores_auth_files(
     tmp_path: Path,
 ) -> None:
@@ -893,6 +907,55 @@ def test_gemini_provider_probe_auth_uses_env_or_cached_google_login(
 
     missing_auth = provider.probe_auth(runtime, environ={"HOME": str(tmp_path / "x")})
     assert missing_auth.status == AuthStatus.SETUP_NEEDED
+
+
+def test_gemini_provider_probe_auth_accepts_vertex_ai_configuration(
+    tmp_path: Path,
+) -> None:
+    provider = GeminiProvider()
+    runtime = ResolvedRuntime(
+        provider="gemini",
+        version="0.36.0",
+        install_dir=tmp_path,
+        executable_path=tmp_path / "bin" / "gemini",
+        package_name=provider.package_name,
+    )
+
+    result = provider.probe_auth(
+        runtime,
+        environ={
+            "HOME": str(tmp_path / "home"),
+            "GOOGLE_GENAI_USE_VERTEXAI": "true",
+            "GOOGLE_CLOUD_PROJECT": "test-project",
+            "GOOGLE_CLOUD_LOCATION": "europe-west4",
+            "GOOGLE_APPLICATION_CREDENTIALS": "/tmp/service-account.json",
+        },
+    )
+
+    assert result.status == AuthStatus.AUTHENTICATED
+
+
+def test_gemini_provider_builds_expected_command_without_system_prompt() -> None:
+    provider = GeminiProvider()
+    runtime = ResolvedRuntime(
+        provider="gemini",
+        version="0.36.0",
+        install_dir=Path("/tmp/gemini"),
+        executable_path=Path("/tmp/gemini/bin/gemini"),
+        package_name=provider.package_name,
+    )
+
+    command = provider.build_command(runtime, prompt="review diff")
+
+    assert command == [
+        "/tmp/gemini/bin/gemini",
+        "--prompt",
+        "review diff",
+        "--approval-mode",
+        "yolo",
+        "--output-format",
+        "text",
+    ]
 
 
 def test_provider_version_parsing_and_auth_probes(
