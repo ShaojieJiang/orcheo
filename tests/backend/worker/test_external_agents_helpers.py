@@ -34,6 +34,7 @@ from orcheo_backend.worker.external_agents import (
     _forward_login_input,
     _gemini_auth_file_paths,
     _gemini_auto_enter_prompt_id,
+    _gemini_login_working_directory,
     _has_gemini_auth_method_prompt,
     _has_gemini_trust_prompt,
     _initial_login_detail,
@@ -191,6 +192,37 @@ def test_should_retry_gemini_login_matches_restart_notice() -> None:
 
 def test_should_retry_gemini_login_ignores_non_restart_output() -> None:
     assert _should_retry_gemini_login("Please visit the following URL.") is False
+
+
+def test_gemini_login_working_directory_returns_signin_path_when_created(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    signin_dir = Path("/tmp/orcheo-gemini-login")
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.GEMINI_SIGNIN_WORKING_DIRECTORY",
+        signin_dir,
+    )
+
+    assert _gemini_login_working_directory() == signin_dir
+
+
+def test_gemini_login_working_directory_falls_back_to_cwd_on_mkdir_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    signin_dir = Path("/tmp/orcheo-gemini-login")
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.GEMINI_SIGNIN_WORKING_DIRECTORY",
+        signin_dir,
+    )
+
+    def _raise_oserror(*args: object, **kwargs: object) -> None:
+        raise OSError("read-only")
+
+    monkeypatch.setattr(Path, "mkdir", _raise_oserror)
+    monkeypatch.chdir(tmp_path)
+
+    assert _gemini_login_working_directory() == tmp_path
 
 
 @pytest.mark.parametrize(

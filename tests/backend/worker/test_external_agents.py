@@ -1923,7 +1923,15 @@ async def test_disconnect_external_agent_removes_gemini_runtime_installation(
     result = await disconnect_external_agent_async("gemini")
 
     assert result == {"status": "not_installed"}
-    manager.save_provider_environment.assert_not_called()
+    manager.save_provider_environment.assert_called_once_with(
+        "gemini",
+        {
+            "GEMINI_AUTH_JSON": "",
+            "GEMINI_GOOGLE_ACCOUNTS_JSON": "",
+            "GEMINI_STATE_JSON": "",
+            "GEMINI_OAUTH_CREDS_JSON": "",
+        },
+    )
     assert not provider_root.exists()
 
 

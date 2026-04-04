@@ -981,7 +981,7 @@ def _gemini_login_working_directory() -> Path:
     try:
         GEMINI_SIGNIN_WORKING_DIRECTORY.mkdir(parents=True, exist_ok=True)
     except OSError:
-        return GEMINI_SIGNIN_WORKING_DIRECTORY
+        return Path.cwd()
     return GEMINI_SIGNIN_WORKING_DIRECTORY
 
 
@@ -1005,13 +1005,12 @@ async def disconnect_external_agent_async(provider_name: str) -> dict[str, str]:
 
     _logout_provider_cli(provider_id, runtime, provider_environ)
     _clear_provider_auth_state(provider_id, provider_environ)
+    manager.save_provider_environment(
+        provider_name,
+        _provider_environment_reset(provider_id),
+    )
     if provider_id == ExternalAgentProviderName.GEMINI:
         _delete_provider_runtime_installation(manager, provider_name)
-    else:
-        manager.save_provider_environment(
-            provider_name,
-            _provider_environment_reset(provider_id),
-        )
     runtime_store.save_provider_environment(provider_id, {})
     _mark_provider_session_disconnected(runtime_store, provider_id)
     return await refresh_external_agent_status_async(provider_name)
