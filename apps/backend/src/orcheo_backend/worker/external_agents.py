@@ -167,6 +167,12 @@ def _set_pty_size(
 
 def _create_terminal_emulator() -> Any:
     """Return a VT100 screen emulator for capturing visible login output."""
+
+    def _safe_do_log(fsm: Any) -> None:
+        """Discard unsupported escape sequences without writing a local log file."""
+        screen = fsm.memory[0]
+        fsm.memory = [screen]
+
     with warnings.catch_warnings():
         warnings.filterwarnings(
             "ignore",
@@ -175,6 +181,9 @@ def _create_terminal_emulator() -> Any:
         )
         from pexpect import ANSI
 
+    # pexpect.ANSI wires its fallback handler to DoLog, which tries to append to
+    # a literal "./log" file when it sees an unsupported escape sequence.
+    ANSI.DoLog = _safe_do_log
     return ANSI.ANSI(LOGIN_PTY_ROWS, LOGIN_PTY_COLS, encoding="utf-8")
 
 
