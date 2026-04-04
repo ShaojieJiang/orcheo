@@ -1695,6 +1695,10 @@ async def test_start_login_gemini_auto_submits_safe_enter_prompts(
         "orcheo_backend.worker.external_agents._run_login_command",
         fake_run_login_command,
     )
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents._gemini_login_working_directory",
+        lambda: Path("/workspace/agents"),
+    )
 
     result = await start_external_agent_login_async("gemini", "gemini-auto-enter")
 
@@ -1787,6 +1791,10 @@ async def test_start_login_gemini_retries_after_cli_restart_notice(
     monkeypatch.setattr(
         "orcheo_backend.worker.external_agents._run_login_command",
         fake_run_login_command,
+    )
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents._gemini_login_working_directory",
+        lambda: Path("/workspace/agents"),
     )
 
     result = await start_external_agent_login_async("gemini", "gemini-restart")

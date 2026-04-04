@@ -1348,7 +1348,7 @@ async def start_external_agent_login_async(  # noqa: C901, PLR0915
 
         result: LoginCommandResult | None = None
         login_attempts = 2 if provider_id == ExternalAgentProviderName.GEMINI else 1
-        for attempt in range(login_attempts):
+        for attempt in range(login_attempts):  # pragma: no branch
             gemini_auto_enter_prompts_sent: set[str] = set()
 
             def auto_login_input(

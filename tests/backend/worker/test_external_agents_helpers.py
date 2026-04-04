@@ -23,6 +23,7 @@ from orcheo_backend.worker.external_agents import (
     _active_login_session_status,
     _browser_login_detail,
     _clear_provider_auth_state,
+    _delete_directory_if_present,
     _delete_file_if_present,
     _drain_login_output,
     _extract_auth_token,
@@ -1086,3 +1087,28 @@ def test_mark_provider_session_disconnected_without_active_session(
         ).active_session_id
         is None
     )
+
+
+def test_persist_gemini_auth_files_returns_early_when_no_files_present(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """_persist_gemini_auth_files_to_vault returns without upserting when no auth files exist."""  # noqa: E501
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.get_vault",
+        lambda: object(),
+    )
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.upsert_external_agent_secret",
+        lambda *args, **kwargs: pytest.fail("should not upsert when no payload"),
+    )
+
+    # HOME points to a tmp dir with no .gemini directory at all
+    _persist_gemini_auth_files_to_vault({"HOME": str(tmp_path)})
+
+
+def test_delete_directory_if_present_is_noop_when_missing(tmp_path: Path) -> None:
+    """_delete_directory_if_present silently returns when the path does not exist."""
+    missing = tmp_path / "nonexistent_dir"
+    _delete_directory_if_present(missing)
+    assert not missing.exists()
