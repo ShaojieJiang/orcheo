@@ -14,6 +14,7 @@ import {
 import { Separator } from "@/design-system/ui/separator";
 import { Input } from "@/design-system/ui/input";
 import {
+  disconnectExternalAgent,
   getExternalAgentLoginSession,
   getExternalAgents,
   refreshExternalAgents,
@@ -27,7 +28,11 @@ import {
 } from "@/lib/api";
 
 const CONTEXT_URL = "http://localhost:3333/context/sessions";
-const PROVIDER_ORDER: ExternalAgentProviderName[] = ["claude_code", "codex"];
+const PROVIDER_ORDER: ExternalAgentProviderName[] = [
+  "claude_code",
+  "codex",
+  "gemini",
+];
 const SESSION_TERMINAL_STATES = new Set<ExternalAgentLoginSessionState>([
   "authenticated",
   "failed",
@@ -144,6 +149,8 @@ const AgentSettingsTab = () => {
   const [isLoadingStatuses, setIsLoadingStatuses] = useState(true);
   const [isRefreshingStatuses, setIsRefreshingStatuses] = useState(false);
   const [pendingProvider, setPendingProvider] =
+    useState<ExternalAgentProviderName | null>(null);
+  const [pendingDisconnectProvider, setPendingDisconnectProvider] =
     useState<ExternalAgentProviderName | null>(null);
   const [pendingInputProvider, setPendingInputProvider] =
     useState<ExternalAgentProviderName | null>(null);
@@ -366,6 +373,47 @@ const AgentSettingsTab = () => {
     [sessionInputs],
   );
 
+  const handleDisconnect = useCallback(
+    async (provider: ExternalAgentProviderName) => {
+      setPendingDisconnectProvider(provider);
+      try {
+        const updated = await disconnectExternalAgent(provider);
+        setProviderStatuses((current) =>
+          sortStatuses(
+            current.map((status) =>
+              status.provider === provider ? updated : status,
+            ),
+          ),
+        );
+        setLoginSessions((current) => {
+          const next = { ...current };
+          delete next[provider];
+          return next;
+        });
+        setActiveSessions((current) => {
+          const next = { ...current };
+          delete next[provider];
+          return next;
+        });
+        setSessionInputs((current) => ({
+          ...current,
+          [provider]: "",
+        }));
+        setStatusError(null);
+        void loadProviderStatuses();
+      } catch (error) {
+        setStatusError(
+          error instanceof Error
+            ? error.message
+            : "Failed to disconnect the worker auth state.",
+        );
+      } finally {
+        setPendingDisconnectProvider(null);
+      }
+    },
+    [loadProviderStatuses],
+  );
+
   const providerCards = useMemo(
     () =>
       providerStatuses.map((provider) => {
@@ -384,20 +432,34 @@ const AgentSettingsTab = () => {
         const lastAuthAt = formatTimestamp(provider.last_auth_ok_at);
         const isBusy =
           pendingProvider === provider.provider ||
+          pendingDisconnectProvider === provider.provider ||
           provider.state === "checking" ||
           provider.state === "installing" ||
           provider.state === "authenticating";
-        const connectLabel =
-          provider.state === "not_installed"
+        const isReady = provider.state === "ready";
+        const buttonLabel = isReady
+          ? "Disconnect"
+          : provider.state === "not_installed"
             ? "Install and connect"
-            : provider.state === "ready"
-              ? "Reconnect"
-              : "Connect";
+            : "Connect";
         const showCodexDeviceAuthReminder =
           provider.provider === "codex" &&
           (provider.state === "not_installed" ||
             provider.state === "needs_login") &&
           !activeSessions[provider.provider];
+        const showSessionInput =
+          (provider.provider === "claude_code" ||
+            provider.provider === "gemini") &&
+          session !== null &&
+          !isTerminalSessionState(session.state);
+        const sessionInputPlaceholder =
+          provider.provider === "gemini"
+            ? "Paste Gemini verification code"
+            : "Paste Claude auth code or redirect URL";
+        const sessionInputHelpText =
+          provider.provider === "gemini"
+            ? "Paste the Gemini verification code shown after browser sign-in so the worker can finish authentication."
+            : "Paste the full Claude browser value here. Canvas accepts the final redirect URL, a full code#state value, or just the one-time code shown at the end of sign-in.";
 
         return (
           <Card key={provider.provider} className="border-border/80">
@@ -494,61 +556,59 @@ const AgentSettingsTab = () => {
                       {session.recent_output}
                     </pre>
                   )}
-                  {provider.provider === "claude_code" &&
-                    !isTerminalSessionState(session.state) && (
-                      <div className="mt-3 space-y-2">
-                        <p className="text-xs text-muted-foreground">
-                          Paste the full Claude browser value here. Canvas
-                          accepts the final redirect URL, a full{" "}
-                          <code>code#state</code> value, or just the one-time
-                          code shown at the end of sign-in.
-                        </p>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Input
-                            value={sessionInputs[provider.provider] ?? ""}
-                            onChange={(event) => {
-                              const value = event.target.value;
-                              setSessionInputs((current) => ({
-                                ...current,
-                                [provider.provider]: value,
-                              }));
-                            }}
-                            placeholder="Paste Claude auth code or redirect URL"
-                            className="max-w-sm bg-background"
-                          />
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              void handleSubmitSessionInput(
-                                provider.provider,
-                                session.session_id,
-                              );
-                            }}
-                            disabled={
-                              pendingInputProvider === provider.provider
-                            }
-                          >
-                            {pendingInputProvider === provider.provider && (
-                              <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-                            )}
-                            Submit code
-                          </Button>
-                        </div>
+                  {showSessionInput && (
+                    <div className="mt-3 space-y-2">
+                      <p className="text-xs text-muted-foreground">
+                        {sessionInputHelpText}
+                      </p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Input
+                          value={sessionInputs[provider.provider] ?? ""}
+                          onChange={(event) => {
+                            const value = event.target.value;
+                            setSessionInputs((current) => ({
+                              ...current,
+                              [provider.provider]: value,
+                            }));
+                          }}
+                          placeholder={sessionInputPlaceholder}
+                          className="max-w-sm bg-background"
+                        />
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            void handleSubmitSessionInput(
+                              provider.provider,
+                              session.session_id,
+                            );
+                          }}
+                          disabled={pendingInputProvider === provider.provider}
+                        >
+                          {pendingInputProvider === provider.provider && (
+                            <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                          )}
+                          Submit code
+                        </Button>
                       </div>
-                    )}
+                    </div>
+                  )}
                 </div>
               )}
 
               <div className="flex flex-wrap items-center gap-2">
                 <Button
                   onClick={() => {
+                    if (isReady) {
+                      void handleDisconnect(provider.provider);
+                      return;
+                    }
                     void handleConnect(provider.provider);
                   }}
                   disabled={isBusy}
                 >
                   {isBusy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  {connectLabel}
+                  {buttonLabel}
                 </Button>
                 {provider.executable_path && (
                   <code className="rounded bg-muted px-2 py-1 text-xs">
@@ -564,9 +624,11 @@ const AgentSettingsTab = () => {
       activeSessions,
       copiedValue,
       copy,
+      handleDisconnect,
       handleConnect,
       handleSubmitSessionInput,
       loginSessions,
+      pendingDisconnectProvider,
       pendingProvider,
       pendingInputProvider,
       providerStatuses,
@@ -589,9 +651,9 @@ const AgentSettingsTab = () => {
             <div className="space-y-1">
               <CardTitle>External Agents</CardTitle>
               <CardDescription>
-                Connect Claude Code and Codex once per worker from Canvas. OAuth
-                happens on the execution worker, not on individual workflow
-                nodes or the local browser-aware bridge below.
+                Connect Claude Code, Codex, and Gemini CLI once per worker from
+                Canvas. OAuth happens on the execution worker, not on individual
+                workflow nodes or the local browser-aware bridge below.
               </CardDescription>
             </div>
             <Button
@@ -628,7 +690,8 @@ const AgentSettingsTab = () => {
           <CardDescription>
             Use the browser-aware CLI bridge when you want a local terminal
             agent to understand the workflow currently open in Canvas. This does
-            not authenticate worker-side Claude Code or Codex workflow nodes.
+            not authenticate worker-side Claude Code, Codex, or Gemini workflow
+            nodes.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

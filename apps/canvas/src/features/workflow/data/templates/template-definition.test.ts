@@ -57,22 +57,33 @@ describe("template compatibility", () => {
     expect(chatkitTemplate!.workflow.tags).toContain("chatkit");
   });
 
-  it("includes the Claude Code and Codex external-agent templates", () => {
+  it("includes the Claude Code, Codex, and Gemini external-agent templates", () => {
     const claudeTemplate = getWorkflowTemplateDefinition(
       "template-claude-code-agent",
     );
     const codexTemplate = getWorkflowTemplateDefinition("template-codex-agent");
+    const geminiTemplate = getWorkflowTemplateDefinition(
+      "template-gemini-agent",
+    );
 
     expect(claudeTemplate).toBeDefined();
     expect(codexTemplate).toBeDefined();
+    expect(geminiTemplate).toBeDefined();
     expect(claudeTemplate!.workflow.name).toBe("Claude Code Agent");
     expect(codexTemplate!.workflow.name).toBe("Codex Agent");
+    expect(geminiTemplate!.workflow.name).toBe("Gemini Agent");
     expect(claudeTemplate!.runnableConfig?.configurable).toEqual({
       working_directory: "/workspace/agents",
     });
     expect(codexTemplate!.runnableConfig?.configurable).toEqual({
       working_directory: "/workspace/agents",
     });
+    expect(geminiTemplate!.runnableConfig?.configurable).toEqual({
+      working_directory: "/workspace/agents",
+    });
+    expect(geminiTemplate!.script).toContain(
+      "from orcheo.nodes.gemini import GeminiNode",
+    );
   });
 
   it("rejects templates when provider or reply-node contracts drift", () => {

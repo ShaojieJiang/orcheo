@@ -30,6 +30,7 @@ def test_list_provider_statuses_returns_defaults(
     assert [status.provider for status in statuses] == [
         ExternalAgentProviderName.CLAUDE_CODE,
         ExternalAgentProviderName.CODEX,
+        ExternalAgentProviderName.GEMINI,
     ]
     assert statuses[0].state == ExternalAgentProviderState.UNKNOWN
 

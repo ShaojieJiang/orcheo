@@ -35,6 +35,13 @@ const highlightCredentialNames = (
 };
 
 const PLACEHOLDER_PATTERN = /\[\[([^[\]]+)\]\]/g;
+const OPTIONAL_EXTERNAL_AGENT_PLACEHOLDERS = new Set([
+  "CLAUDE_CODE_OAUTH_TOKEN",
+  "CODEX_AUTH_JSON",
+  "GEMINI_GOOGLE_ACCOUNTS_JSON",
+  "GEMINI_STATE_JSON",
+  "GEMINI_OAUTH_CREDS_JSON",
+]);
 
 const addPlaceholderMatches = (
   value: string,
@@ -47,6 +54,9 @@ const addPlaceholderMatches = (
     }
     const identifier = rawBody.split("#", 1)[0]?.trim();
     if (!identifier) {
+      continue;
+    }
+    if (OPTIONAL_EXTERNAL_AGENT_PLACEHOLDERS.has(identifier)) {
       continue;
     }
     placeholders.add(identifier);

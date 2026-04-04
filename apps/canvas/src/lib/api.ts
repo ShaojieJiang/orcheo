@@ -29,7 +29,7 @@ export interface SystemInfoResponse {
   checked_at: string;
 }
 
-export type ExternalAgentProviderName = "claude_code" | "codex";
+export type ExternalAgentProviderName = "claude_code" | "codex" | "gemini";
 
 export type ExternalAgentProviderState =
   | "unknown"
@@ -191,6 +191,17 @@ export async function startExternalAgentLogin(
 ): Promise<ExternalAgentLoginSession> {
   return requestSystemJson<ExternalAgentLoginSession>(
     `/api/system/external-agents/${provider}/login`,
+    { method: "POST" },
+    baseUrl,
+  );
+}
+
+export async function disconnectExternalAgent(
+  provider: ExternalAgentProviderName,
+  baseUrl?: string,
+): Promise<ExternalAgentProviderStatus> {
+  return requestSystemJson<ExternalAgentProviderStatus>(
+    `/api/system/external-agents/${provider}/disconnect`,
     { method: "POST" },
     baseUrl,
   );

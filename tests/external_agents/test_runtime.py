@@ -31,6 +31,12 @@ from orcheo.external_agents.paths import (
 from orcheo.external_agents.providers.base import NpmCliProvider
 from orcheo.external_agents.providers.claude_code import ClaudeCodeProvider
 from orcheo.external_agents.providers.codex import CodexProvider
+from orcheo.external_agents.providers.gemini import (
+    GEMINI_GOOGLE_ACCOUNTS_JSON_ENV_VAR,
+    GEMINI_OAUTH_CREDS_JSON_ENV_VAR,
+    GEMINI_STATE_JSON_ENV_VAR,
+    GeminiProvider,
+)
 from orcheo.external_agents.runtime import (
     ExternalAgentRuntimeManager,
     scoped_external_agent_environment,
@@ -768,6 +774,125 @@ def test_claude_provider_renders_login_instructions() -> None:
         "export CLAUDE_CODE_OAUTH_TOKEN=<oauth-token>",
         "export ANTHROPIC_API_KEY=<api-key>",
     ]
+
+
+def test_gemini_provider_builds_expected_command() -> None:
+    provider = GeminiProvider()
+    runtime = ResolvedRuntime(
+        provider="gemini",
+        version="0.36.0",
+        install_dir=Path("/tmp/gemini"),
+        executable_path=Path("/tmp/gemini/bin/gemini"),
+        package_name=provider.package_name,
+    )
+
+    command = provider.build_command(
+        runtime,
+        prompt="review diff",
+        system_prompt="be concise",
+    )
+
+    assert command == [
+        "/tmp/gemini/bin/gemini",
+        "--prompt",
+        "System instructions:\nbe concise\n\nTask:\nreview diff",
+        "--approval-mode",
+        "yolo",
+        "--output-format",
+        "text",
+    ]
+
+
+def test_gemini_provider_renders_login_instructions() -> None:
+    provider = GeminiProvider()
+    runtime = ResolvedRuntime(
+        provider="gemini",
+        version="0.36.0",
+        install_dir=Path("/tmp/gemini"),
+        executable_path=Path("/tmp/gemini/bin/gemini"),
+        package_name=provider.package_name,
+    )
+
+    assert provider.render_login_instructions(runtime) == [
+        "/tmp/gemini/bin/gemini /auth signin",
+        "export GEMINI_API_KEY=<api-key>",
+        "export GOOGLE_GENAI_USE_VERTEXAI=true",
+    ]
+
+
+def test_gemini_provider_uses_interactive_auth_command() -> None:
+    provider = GeminiProvider()
+    runtime = ResolvedRuntime(
+        provider="gemini",
+        version="0.36.0",
+        install_dir=Path("/tmp/gemini"),
+        executable_path=Path("/tmp/gemini/bin/gemini"),
+        package_name=provider.package_name,
+    )
+
+    assert provider.oauth_login_command(runtime) == [
+        "/tmp/gemini/bin/gemini",
+        "/auth",
+        "signin",
+    ]
+
+
+def test_gemini_provider_build_environment_restores_auth_files(
+    tmp_path: Path,
+) -> None:
+    provider = GeminiProvider()
+    home = tmp_path / "home"
+    home.mkdir()
+
+    provider.build_environment(
+        {
+            "HOME": str(home),
+            GEMINI_GOOGLE_ACCOUNTS_JSON_ENV_VAR: '{"active":{}}',
+            GEMINI_STATE_JSON_ENV_VAR: '{"tipsShown":{}}',
+            GEMINI_OAUTH_CREDS_JSON_ENV_VAR: '{"tokens":{}}',
+        }
+    )
+
+    gemini_home = home / ".gemini"
+    assert (gemini_home / "google_accounts.json").read_text(encoding="utf-8") == (
+        '{"active":{}}'
+    )
+    assert (gemini_home / "state.json").read_text(encoding="utf-8") == (
+        '{"tipsShown":{}}'
+    )
+    assert (gemini_home / "oauth_creds.json").read_text(encoding="utf-8") == (
+        '{"tokens":{}}'
+    )
+
+
+def test_gemini_provider_probe_auth_uses_env_or_cached_google_login(
+    tmp_path: Path,
+) -> None:
+    provider = GeminiProvider()
+    runtime = ResolvedRuntime(
+        provider="gemini",
+        version="0.36.0",
+        install_dir=tmp_path,
+        executable_path=tmp_path / "bin" / "gemini",
+        package_name=provider.package_name,
+    )
+
+    env_auth = provider.probe_auth(
+        runtime,
+        environ={GEMINI_GOOGLE_ACCOUNTS_JSON_ENV_VAR: '{"active":{}}'},
+    )
+    assert env_auth.status == AuthStatus.AUTHENTICATED
+
+    home = tmp_path / "home"
+    gemini_home = home / ".gemini"
+    gemini_home.mkdir(parents=True)
+    (gemini_home / "google_accounts.json").write_text("{}", encoding="utf-8")
+
+    cached_auth = provider.probe_auth(runtime, environ={"HOME": str(home)})
+    assert cached_auth.status == AuthStatus.AUTHENTICATED
+
+    missing_auth = provider.probe_auth(runtime, environ={"HOME": str(tmp_path / "x")})
+    assert missing_auth.status == AuthStatus.SETUP_NEEDED
 
 
 def test_provider_version_parsing_and_auth_probes(

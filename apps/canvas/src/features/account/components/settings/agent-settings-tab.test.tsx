@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import AgentSettingsTab from "@features/account/components/settings/agent-settings-tab";
 import {
+  disconnectExternalAgent,
   getExternalAgentLoginSession,
   getExternalAgents,
   refreshExternalAgents,
@@ -12,6 +13,7 @@ import {
 } from "@/lib/api";
 
 vi.mock("@/lib/api", () => ({
+  disconnectExternalAgent: vi.fn(),
   getExternalAgents: vi.fn(),
   refreshExternalAgents: vi.fn(),
   startExternalAgentLogin: vi.fn(),
@@ -48,6 +50,20 @@ const mockProviders = [
     detail: "Runtime not installed on the worker yet.",
     active_session_id: null,
   },
+  {
+    provider: "gemini" as const,
+    display_name: "Gemini CLI",
+    state: "needs_login" as const,
+    installed: true,
+    authenticated: false,
+    supports_oauth: true,
+    resolved_version: "0.36.0",
+    executable_path: "/data/gemini/bin/gemini",
+    checked_at: "2026-03-31T10:00:00Z",
+    last_auth_ok_at: null,
+    detail: "OAuth login is required on the worker.",
+    active_session_id: null,
+  },
 ];
 
 describe("AgentSettingsTab", () => {
@@ -73,6 +89,20 @@ describe("AgentSettingsTab", () => {
       recent_output: null,
       resolved_version: null,
       executable_path: null,
+    });
+    vi.mocked(disconnectExternalAgent).mockResolvedValue({
+      provider: "gemini",
+      display_name: "Gemini CLI",
+      state: "checking",
+      installed: true,
+      authenticated: false,
+      supports_oauth: true,
+      resolved_version: "0.36.0",
+      executable_path: "/data/gemini/bin/gemini",
+      checked_at: "2026-03-31T10:00:00Z",
+      last_auth_ok_at: null,
+      detail: "Disconnecting worker auth state.",
+      active_session_id: null,
     });
     vi.mocked(getExternalAgentLoginSession).mockResolvedValue({
       session_id: "session-1",
@@ -121,6 +151,7 @@ describe("AgentSettingsTab", () => {
     await waitFor(() => {
       expect(screen.getByText("Claude Code")).toBeInTheDocument();
       expect(screen.getByText("Codex")).toBeInTheDocument();
+      expect(screen.getByText("Gemini CLI")).toBeInTheDocument();
     });
 
     expect(
@@ -132,7 +163,7 @@ describe("AgentSettingsTab", () => {
     expect(screen.getByText("Local Agent Context Bridge")).toBeInTheDocument();
     expect(
       screen.getByText(
-        /does not authenticate worker-side Claude Code or Codex workflow nodes/i,
+        /does not authenticate worker-side Claude Code, Codex, or Gemini workflow nodes/i,
       ),
     ).toBeInTheDocument();
   });
@@ -150,6 +181,7 @@ describe("AgentSettingsTab", () => {
           executable_path: "/data/codex/bin/codex",
           detail: "Worker is ready to run Codex.",
         },
+        mockProviders[2],
       ],
     });
     vi.mocked(refreshExternalAgents).mockResolvedValue({
@@ -164,6 +196,7 @@ describe("AgentSettingsTab", () => {
           executable_path: "/data/codex/bin/codex",
           detail: "Worker is ready to run Codex.",
         },
+        mockProviders[2],
       ],
     });
 
@@ -192,6 +225,7 @@ describe("AgentSettingsTab", () => {
           detail: "Waiting for browser-based sign-in.",
           active_session_id: "session-1",
         },
+        mockProviders[2],
       ],
     });
 
@@ -234,6 +268,7 @@ describe("AgentSettingsTab", () => {
           active_session_id: "session-claude",
         },
         mockProviders[1],
+        mockProviders[2],
       ],
     });
     vi.mocked(refreshExternalAgents).mockResolvedValue({
@@ -243,6 +278,7 @@ describe("AgentSettingsTab", () => {
           active_session_id: "session-claude",
         },
         mockProviders[1],
+        mockProviders[2],
       ],
     });
     vi.mocked(getExternalAgentLoginSession).mockResolvedValue({
@@ -287,6 +323,7 @@ describe("AgentSettingsTab", () => {
           active_session_id: "session-claude",
         },
         mockProviders[1],
+        mockProviders[2],
       ],
     });
     vi.mocked(refreshExternalAgents).mockResolvedValue({
@@ -296,6 +333,7 @@ describe("AgentSettingsTab", () => {
           active_session_id: "session-claude",
         },
         mockProviders[1],
+        mockProviders[2],
       ],
     });
     vi.mocked(getExternalAgentLoginSession).mockResolvedValue({
@@ -365,5 +403,94 @@ describe("AgentSettingsTab", () => {
       await screen.findByRole("link", { name: /open sign-in/i }),
     ).toHaveAttribute("href", authUrl);
     expect(screen.queryByText(authUrl)).not.toBeInTheDocument();
+  });
+
+  it("submits a Gemini verification code back to the worker session", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getExternalAgents).mockResolvedValue({
+      providers: [
+        mockProviders[0],
+        mockProviders[1],
+        { ...mockProviders[2], active_session_id: "session-gemini" },
+      ],
+    });
+    vi.mocked(refreshExternalAgents).mockResolvedValue({
+      providers: [
+        mockProviders[0],
+        mockProviders[1],
+        { ...mockProviders[2], active_session_id: "session-gemini" },
+      ],
+    });
+    vi.mocked(getExternalAgentLoginSession).mockResolvedValue({
+      session_id: "session-gemini",
+      provider: "gemini",
+      display_name: "Gemini CLI",
+      state: "awaiting_oauth",
+      created_at: "2026-03-31T10:00:00Z",
+      updated_at: "2026-03-31T10:00:02Z",
+      completed_at: null,
+      auth_url: "https://accounts.google.com/o/oauth2/v2/auth",
+      device_code: "ABCD-1234",
+      detail: "Complete the browser sign-in.",
+      recent_output: "Enter the verification code shown in the terminal.",
+      resolved_version: "0.36.0",
+      executable_path: "/data/gemini/bin/gemini",
+    });
+
+    render(<AgentSettingsTab />);
+
+    const input = await screen.findByPlaceholderText(
+      /paste gemini verification code/i,
+    );
+    await user.type(input, "ABCD-1234");
+    await user.click(screen.getByRole("button", { name: /submit code/i }));
+
+    await waitFor(() => {
+      expect(submitExternalAgentLoginInput).toHaveBeenCalledWith(
+        "session-gemini",
+        {
+          input_text: "ABCD-1234",
+        },
+      );
+    });
+  });
+
+  it("renders Disconnect for ready providers and calls the disconnect route", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getExternalAgents).mockResolvedValue({
+      providers: [
+        mockProviders[0],
+        mockProviders[1],
+        {
+          ...mockProviders[2],
+          state: "ready",
+          authenticated: true,
+          detail: "Worker is ready to run Gemini.",
+        },
+      ],
+    });
+    vi.mocked(refreshExternalAgents).mockResolvedValue({
+      providers: [
+        mockProviders[0],
+        mockProviders[1],
+        {
+          ...mockProviders[2],
+          state: "ready",
+          authenticated: true,
+          detail: "Worker is ready to run Gemini.",
+        },
+      ],
+    });
+
+    render(<AgentSettingsTab />);
+
+    const disconnectButton = await screen.findByRole("button", {
+      name: /disconnect/i,
+    });
+    await user.click(disconnectButton);
+
+    await waitFor(() => {
+      expect(disconnectExternalAgent).toHaveBeenCalledWith("gemini");
+    });
   });
 });

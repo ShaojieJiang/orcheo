@@ -46,6 +46,27 @@ describe("credential vault reminder helpers", () => {
     ]);
   });
 
+  it("ignores optional external-agent auth placeholders", () => {
+    const placeholders = collectCredentialPlaceholderNames({
+      script: `
+        gemini = GeminiNode(
+          google_accounts_json="[[GEMINI_GOOGLE_ACCOUNTS_JSON]]",
+          state_json="[[GEMINI_STATE_JSON]]",
+          oauth_creds_json="[[GEMINI_OAUTH_CREDS_JSON]]",
+        )
+        token = "[[telegram_token]]"
+      `,
+      runnableConfig: {
+        configurable: {
+          codexAuth: "[[CODEX_AUTH_JSON]]",
+          claudeToken: "[[CLAUDE_CODE_OAUTH_TOKEN]]",
+        },
+      },
+    });
+
+    expect(placeholders).toEqual(["telegram_token"]);
+  });
+
   it("describes readiness with exact placeholder names", () => {
     expect(
       describeCredentialVaultReadiness({

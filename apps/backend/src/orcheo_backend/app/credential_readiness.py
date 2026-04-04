@@ -11,6 +11,15 @@ from orcheo.runtime.credentials import parse_credential_reference
 
 
 _PLACEHOLDER_PATTERN = re.compile(r"\[\[[^\[\]]+\]\]")
+_OPTIONAL_EXTERNAL_AGENT_PLACEHOLDERS = frozenset(
+    {
+        "CLAUDE_CODE_OAUTH_TOKEN",
+        "CODEX_AUTH_JSON",
+        "GEMINI_GOOGLE_ACCOUNTS_JSON",
+        "GEMINI_STATE_JSON",
+        "GEMINI_OAUTH_CREDS_JSON",
+    }
+)
 
 
 def collect_workflow_credential_placeholders(
@@ -86,6 +95,8 @@ def _collect_string(value: str, placeholders: dict[str, set[str]]) -> None:
         placeholder = match.group(0)
         reference = parse_credential_reference(placeholder)
         if reference is None:
+            continue
+        if reference.identifier in _OPTIONAL_EXTERNAL_AGENT_PLACEHOLDERS:
             continue
         placeholders.setdefault(reference.identifier, set()).add(placeholder)
 

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
+  disconnectExternalAgent,
   executeNode,
   getExternalAgentLoginSession,
   getExternalAgents,
@@ -188,6 +189,20 @@ describe("executeNode", () => {
     const mockResponse = {
       providers: [
         {
+          provider: "gemini",
+          display_name: "Gemini CLI",
+          state: "needs_login",
+          installed: true,
+          authenticated: false,
+          supports_oauth: true,
+          resolved_version: "0.36.0",
+          executable_path: "/data/gemini/bin/gemini",
+          checked_at: "2026-03-31T10:00:00Z",
+          last_auth_ok_at: null,
+          detail: "OAuth login is required on the worker.",
+          active_session_id: null,
+        },
+        {
           provider: "codex",
           display_name: "Codex",
           state: "needs_login",
@@ -209,7 +224,7 @@ describe("executeNode", () => {
     });
 
     const result = await getExternalAgents();
-    expect(result.providers[0].provider).toBe("codex");
+    expect(result.providers[0].provider).toBe("gemini");
     expect(global.fetch).toHaveBeenCalledWith(
       expect.stringContaining("/api/system/external-agents"),
       expect.objectContaining({ method: "GET" }),
@@ -322,6 +337,34 @@ describe("executeNode", () => {
     expect(global.fetch).toHaveBeenCalledWith(
       expect.stringContaining("/api/system/external-agents/sessions/session-2"),
       expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("should disconnect an external agent", async () => {
+    const mockResponse = {
+      provider: "gemini",
+      display_name: "Gemini CLI",
+      state: "checking",
+      installed: true,
+      authenticated: false,
+      supports_oauth: true,
+      resolved_version: "0.36.0",
+      executable_path: "/data/gemini/bin/gemini",
+      checked_at: "2026-03-31T10:00:00Z",
+      last_auth_ok_at: null,
+      detail: "Disconnecting worker auth state.",
+      active_session_id: null,
+    };
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: true,
+      json: async () => mockResponse,
+    });
+
+    const result = await disconnectExternalAgent("gemini");
+    expect(result.provider).toBe("gemini");
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/api/system/external-agents/gemini/disconnect"),
+      expect.objectContaining({ method: "POST" }),
     );
   });
 });

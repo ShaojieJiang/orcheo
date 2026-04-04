@@ -15,6 +15,7 @@ from orcheo_backend.app.schemas.system import (
     ExternalAgentLoginSessionState,
     ExternalAgentProviderName,
     ExternalAgentProviderState,
+    ExternalAgentProviderStatus,
     ExternalAgentsResponse,
     SystemInfoResponse,
     SystemPluginsResponse,
@@ -127,6 +128,34 @@ def start_external_agent_login(
         session.session_id,
     )
     return session
+
+
+@router.post(
+    "/system/external-agents/{provider_name}/disconnect",
+    response_model=ExternalAgentProviderStatus,
+)
+def disconnect_external_agent(
+    provider_name: ExternalAgentProviderName,
+    runtime_store: ExternalAgentRuntimeStoreDep,
+) -> ExternalAgentProviderStatus:
+    """Queue worker-side logout and auth cleanup for one provider."""
+    current = runtime_store.get_provider_status(provider_name)
+    runtime_store.clear_provider_session(provider_name)
+    updated = current.model_copy(
+        update={
+            "state": ExternalAgentProviderState.CHECKING,
+            "authenticated": False,
+            "detail": "Disconnecting worker auth state.",
+            "active_session_id": None,
+            "checked_at": _utcnow(),
+        }
+    )
+    runtime_store.save_provider_status(updated)
+    _queue_worker_task(
+        "orcheo_backend.worker.tasks.disconnect_external_agent",
+        provider_name.value,
+    )
+    return updated
 
 
 @router.get(
