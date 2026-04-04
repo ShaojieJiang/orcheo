@@ -175,7 +175,7 @@ def test_disconnect_external_agent_queues_worker_task(
     payload = response.json()
     assert payload["provider"] == "codex"
     assert payload["state"] == "checking"
-    assert payload["active_session_id"] is None
+    assert payload["active_session_id"] == "session-1"
     send_task.assert_called_once_with(
         "orcheo_backend.worker.tasks.disconnect_external_agent",
         args=["codex"],

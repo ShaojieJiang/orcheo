@@ -140,13 +140,11 @@ def disconnect_external_agent(
 ) -> ExternalAgentProviderStatus:
     """Queue worker-side logout and auth cleanup for one provider."""
     current = runtime_store.get_provider_status(provider_name)
-    runtime_store.clear_provider_session(provider_name)
     updated = current.model_copy(
         update={
             "state": ExternalAgentProviderState.CHECKING,
             "authenticated": False,
             "detail": "Disconnecting worker auth state.",
-            "active_session_id": None,
             "checked_at": _utcnow(),
         }
     )
