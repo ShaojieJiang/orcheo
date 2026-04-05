@@ -23,6 +23,7 @@ RUN groupadd --gid 1000 orcheo \
 COPY orcheo-entrypoint.sh /usr/local/bin/orcheo-entrypoint
 RUN chmod +x /usr/local/bin/orcheo-entrypoint
 
-# Always build with --no-cache to ensure latest packages are installed
+# Bust Docker layer cache to ensure latest packages are installed
+ARG CACHEBUST
 RUN uv pip install --system --no-cache -U orcheo orcheo-backend orcheo-sdk
 ENTRYPOINT ["orcheo-entrypoint"]
