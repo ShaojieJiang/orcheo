@@ -3,7 +3,8 @@ FROM node:20-alpine AS build
 
 WORKDIR /app
 
-# Install orcheo-canvas from npm
+# Bust Docker layer cache to ensure latest package is installed
+ARG CACHEBUST
 RUN npm init -y \
     && npm install --silent orcheo-canvas@latest
 
