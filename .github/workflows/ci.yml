@@ -246,8 +246,6 @@ jobs:
           file: deploy/stack/Dockerfile.orcheo
           platforms: linux/amd64,linux/arm64
           push: true
-          build-args: |
-            CACHEBUST=${{ github.run_id }}
           tags: |
             ${{ needs.stack-image-metadata.outputs.stack_repo }}:${{ needs.stack-image-metadata.outputs.version }}
             ${{ needs.stack-image-metadata.outputs.stack_repo }}:latest
@@ -279,8 +277,6 @@ jobs:
           file: deploy/stack/Dockerfile.canvas
           platforms: linux/amd64,linux/arm64
           push: true
-          build-args: |
-            CACHEBUST=${{ github.run_id }}
           tags: |
             ${{ needs.stack-image-metadata.outputs.canvas_repo }}:${{ needs.stack-image-metadata.outputs.version }}
             ${{ needs.stack-image-metadata.outputs.canvas_repo }}:latest
