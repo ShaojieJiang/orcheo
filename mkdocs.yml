@@ -47,6 +47,7 @@ nav:
       - Workflow Publishing: chatkit_integration/workflow_publish_guide.md
       - Chat Bubble: chatkit_integration/canvas_chat_bubble_guide.md
       - Webpage Embedding: chatkit_integration/webpage_embedding_guide.md
+      - Custom Chat UI: chatkit_integration/custom_chat_ui_guide.md
   - Development:
       - Developer Guide: developer_guide.md
       - Developer Tooling: developer_tooling.md

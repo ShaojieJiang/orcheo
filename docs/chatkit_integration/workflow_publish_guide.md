@@ -89,6 +89,10 @@ your configured OAuth provider before ChatKit initializes.
   floating bubble. Store the workflow ID or share URL in local state and forward
   it via the `fetchWithWorkflow` helper so every request includes `workflow_id`.
   Be sure the page origin appears in `ORCHEO_CORS_ALLOW_ORIGINS`.
+- **Custom chat UIs** – if you want to render your own message list and composer
+  instead of embedding the stock widget, follow
+  `docs/chatkit_integration/custom_chat_ui_guide.md` to call `/api/chatkit`
+  directly from your frontend or mobile client.
 - **Canvas editor bubble** – internal builders testing unpublished iterations
   can still rely on the Canvas bubble described in
   `docs/chatkit_integration/canvas_chat_bubble_guide.md`. Publishing is only

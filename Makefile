@@ -28,7 +28,7 @@ test:
 	$(UV_RUN) pytest --cov --cov-report term-missing tests/
 
 doc:
-	mkdocs serve --dev-addr=0.0.0.0:8080
+	mkdocs serve --dev-addr=0.0.0.0:8080 --livereload
 
 dev-server:
 	uvicorn --app-dir apps/backend/src orcheo_backend.app:app --reload --port 8000
