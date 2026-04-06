@@ -198,7 +198,7 @@ async function sendChatTurn(
     throw new Error(rawBody || `Chat request failed with ${response.status}`);
   }
 
-  return parseChatKitSse(rawBody);
+  return parseChatKitSse(rawBody, threadId);
 }
 ```
 
@@ -210,16 +210,19 @@ These are the most important event types for a custom UI:
 
 - `thread.created`: save `event.thread.id` as your local `threadId`
 - `thread.item.updated`: append streaming assistant text as it arrives
-- `thread.item.done`: capture the final assistant message content
+- `thread.item.done`: capture the final assistant message content and use `event.item.thread_id` as a fallback thread identifier
 
 Example parser:
 
 ```ts
-function parseChatKitSse(data: string): {
+function parseChatKitSse(
+  data: string,
+  previousThreadId = "",
+): {
   threadId: string;
   responseText: string;
 } {
-  let threadId = "";
+  let threadId = previousThreadId;
   let streamedText = "";
   let finalText = "";
 
@@ -233,6 +236,10 @@ function parseChatKitSse(data: string): {
 
       if (event.type === "thread.created" && event.thread?.id) {
         threadId = event.thread.id;
+      }
+
+      if (!threadId && event.item?.thread_id) {
+        threadId = event.item.thread_id;
       }
 
       if (
@@ -270,6 +277,7 @@ Implementation notes:
 
 - Some environments buffer the whole SSE response before returning it. That still works; you just lose token-by-token rendering.
 - In browsers that support streaming `fetch()`, you can read the response incrementally and apply the same event parsing logic chunk by chunk.
+- Preserve the prior `threadId` when a follow-up turn does not emit `thread.created`. Some responses only expose the thread on `event.item.thread_id`.
 - Ignore event types you do not recognize. Orcheo may emit progress or tool-related events that your UI does not need to render.
 
 ## Suggested UI state model
