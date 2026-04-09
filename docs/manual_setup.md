@@ -40,6 +40,32 @@ For a complete containerized setup with PostgreSQL, Redis, Celery workers, and C
     - Backend API: http://localhost:8000
     - Canvas UI: http://localhost:5173 (may take 2-3 minutes on first startup while npm installs dependencies)
 
+### Public Self-Hosted Ingress (Bundled Caddy)
+
+Use this path on a reachable self-hosted Linux host, such as a cloud VM or an on-prem server with inbound routing already in place.
+
+1. **Confirm prerequisites before install**:
+   - DNS for your chosen hostname already points at the host running Docker.
+   - Inbound `80` and `443` reach that host.
+   - You are not relying on localhost-only networking or a NAT-restricted workstation.
+2. **Install with bundled ingress enabled**:
+   ```bash
+   orcheo install --public-ingress --public-host orcheo.example.com --start-stack
+   ```
+3. **Verify the public origin**:
+   - Public UI: `https://orcheo.example.com/`
+   - Public API: `https://orcheo.example.com/api/system/info`
+   - Public workflow WebSocket base: `wss://orcheo.example.com/ws/workflow/<workflow_id>`
+
+`orcheo install` writes the public-origin contract into `~/.orcheo/stack/.env`:
+- `ORCHEO_API_URL=https://<host>`
+- `VITE_ORCHEO_BACKEND_URL=https://<host>`
+- `ORCHEO_CHATKIT_PUBLIC_BASE_URL=https://<host>`
+- `ORCHEO_CORS_ALLOW_ORIGINS=https://<host>` plus localhost origins when debug ports stay enabled
+- `VITE_ALLOWED_HOSTS=localhost,127.0.0.1,<host>`
+
+Bundled Caddy is the recommended ingress for reachable self-hosted installs. It is not a replacement for Cloudflare Tunnel when inbound ports are unavailable.
+
 ### Managing Services
 
 ```bash
@@ -50,6 +76,7 @@ docker compose -f "$STACK_DIR/docker-compose.yml" --project-directory "$STACK_DI
 docker compose -f "$STACK_DIR/docker-compose.yml" --project-directory "$STACK_DIR" logs -f worker
 docker compose -f "$STACK_DIR/docker-compose.yml" --project-directory "$STACK_DIR" logs -f celery-beat
 docker compose -f "$STACK_DIR/docker-compose.yml" --project-directory "$STACK_DIR" logs -f canvas
+docker compose -f "$STACK_DIR/docker-compose.yml" --project-directory "$STACK_DIR" logs -f caddy
 
 # Stop all services
 docker compose -f "$STACK_DIR/docker-compose.yml" --project-directory "$STACK_DIR" down
@@ -62,6 +89,10 @@ docker compose -f "$STACK_DIR/docker-compose.yml" --project-directory "$STACK_DI
 ### Local Testing Without OAuth
 
 For local development without OAuth, set `ORCHEO_AUTH_MODE=optional` in your `.env` file. This allows unauthenticated access to the API.
+
+### Tunnel-Based Development
+
+Keep Cloudflare Tunnel or a similar tunnel product for cases where the Orcheo host is not directly reachable from the internet, especially localhost development, callback testing from laptops, and NAT-restricted environments. Bundled Caddy expects direct inbound `80/443` access instead.
 
 ## Installation (Manual)
 
