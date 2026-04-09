@@ -3702,7 +3702,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "orcheo-sdk"
-version = "0.25.0"
+version = "0.26.0"
 source = { editable = "packages/sdk" }
 dependencies = [
     { name = "fastmcp" },
