@@ -575,10 +575,11 @@ def _resolve_backend_url(
     yes: bool,
     env_exists: bool = False,
     default_backend_url: str = "http://localhost:8000",
+    preserve_existing_default: bool = True,
 ) -> tuple[str, bool]:
     if backend_url:
         return backend_url, False
-    if mode == "upgrade" or env_exists:
+    if preserve_existing_default and (mode == "upgrade" or env_exists):
         if yes:
             return default_backend_url, True
         selected = _normalize_optional_value(
@@ -1092,7 +1093,7 @@ def _compose_profiles(config: SetupConfig) -> str:
     profiles: list[str] = []
     if config.public_ingress_enabled:
         profiles.append("public-ingress")
-    if not config.public_ingress_enabled or config.publish_debug_ports:
+    if config.publish_debug_ports:
         profiles.append("debug-ports")
     return ",".join(profiles)
 
@@ -1349,12 +1350,19 @@ def run_setup(
         if resolved_public_ingress_enabled and resolved_public_host is not None
         else "http://localhost:8000"
     )
+    preserve_existing_backend_default = not (
+        backend_url is None
+        and public_ingress is True
+        and resolved_public_ingress_enabled
+        and resolved_public_host is not None
+    )
     resolved_backend_url, preserve_existing_backend_url = _resolve_backend_url(
         backend_url,
         mode=resolved_mode,
         yes=yes,
         env_exists=has_existing_stack_env,
         default_backend_url=default_backend_url,
+        preserve_existing_default=preserve_existing_backend_default,
     )
     resolved_auth_mode = _resolve_auth_mode(auth_mode, yes=yes)
     (

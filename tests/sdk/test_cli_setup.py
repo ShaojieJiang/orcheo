@@ -448,6 +448,29 @@ def test_build_env_updates(monkeypatch):
     assert defaults["ORCHEO_POSTGRES_PASSWORD"] == "safe"
 
 
+def test_build_env_updates_hides_debug_ports_in_local_only_mode(monkeypatch):
+    monkeypatch.setattr(secrets, "token_urlsafe", lambda _: "safe")
+    monkeypatch.setattr(secrets, "token_hex", lambda _: "hex")
+    config = setup.SetupConfig(
+        mode="install",
+        backend_url="http://backend",
+        auth_mode="api-key",
+        api_key="provided",
+        chatkit_domain_key="domain",
+        public_ingress_enabled=False,
+        public_host=None,
+        publish_debug_ports=False,
+        backend_upstreams="backend:8000",
+        canvas_upstream="canvas:5173",
+        start_stack=False,
+        install_docker_if_missing=False,
+        install_orcheo_skill=False,
+    )
+
+    updates, _ = setup._build_env_updates(config)
+    assert updates["COMPOSE_PROFILES"] == ""
+
+
 def test_read_env_value_and_warn(tmp_path):
     env_file = tmp_path / ".env"
     env_file.write_text("ORCHEO_API_URL=http://\nVITE_ORCHEO_CHATKIT_DOMAIN_KEY=\n")

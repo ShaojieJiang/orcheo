@@ -387,6 +387,39 @@ def test_run_setup_install_preserves_existing_env_by_default(
     assert config.api_key is None
 
 
+def test_run_setup_install_explicit_public_ingress_updates_backend_url_defaults(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stack_dir = tmp_path / "stack"
+    stack_dir.mkdir(parents=True, exist_ok=True)
+    (stack_dir / ".env").write_text(
+        "ORCHEO_API_URL=http://existing-api.test\n"
+        "VITE_ORCHEO_BACKEND_URL=http://existing-api.test\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("ORCHEO_STACK_DIR", str(stack_dir))
+
+    config = run_setup(
+        mode="install",
+        backend_url=None,
+        auth_mode="api-key",
+        api_key=None,
+        chatkit_domain_key=None,
+        public_ingress=True,
+        public_host="orcheo.example.com",
+        publish_debug_ports=True,
+        start_stack=False,
+        install_docker=False,
+        install_orcheo_skill=False,
+        yes=True,
+        manual_secrets=False,
+        console=Console(record=True),
+    )
+
+    assert config.backend_url == "https://orcheo.example.com"
+    assert config.preserve_existing_backend_url is False
+
+
 def test_execute_setup_preserves_secrets_on_upgrade(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
