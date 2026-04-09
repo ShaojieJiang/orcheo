@@ -101,6 +101,7 @@ _ENV_EXAMPLE = (
 def _default_assets() -> dict[str, bytes]:
     return {
         "docker-compose.yml": b"services: {}\n",
+        "Caddyfile": b'localhost { respond "ok" }\n',
         "Dockerfile.orcheo": b"FROM python:3.12-slim\n",
         ".env.example": _ENV_EXAMPLE,
         "chatkit_widgets/Single-choice list.widget": b"single",
@@ -115,6 +116,11 @@ def _setup_config() -> SetupConfig:
         auth_mode="api-key",
         api_key="generated",
         chatkit_domain_key=None,
+        public_ingress_enabled=False,
+        public_host=None,
+        publish_debug_ports=True,
+        backend_upstreams="backend:8000",
+        canvas_upstream="canvas:5173",
         start_stack=True,
         install_docker_if_missing=True,
         install_orcheo_skill=True,
@@ -188,6 +194,8 @@ def test_execute_setup_bootstraps_stack_assets(
     assert commands[0] == [
         "docker",
         "compose",
+        "--profile",
+        "debug-ports",
         "-f",
         str(stack_dir / "docker-compose.yml"),
         "--project-directory",
@@ -197,6 +205,8 @@ def test_execute_setup_bootstraps_stack_assets(
     assert commands[1] == [
         "docker",
         "compose",
+        "--profile",
+        "debug-ports",
         "-f",
         str(stack_dir / "docker-compose.yml"),
         "--project-directory",
@@ -208,6 +218,7 @@ def test_execute_setup_bootstraps_stack_assets(
     assert config.stack_env_file == str(stack_dir / ".env")
 
     assert (stack_dir / "docker-compose.yml").exists()
+    assert (stack_dir / "Caddyfile").exists()
     assert (stack_dir / "Dockerfile.orcheo").exists()
     assert (stack_dir / ".env.example").exists()
     assert (stack_dir / "chatkit_widgets/Single-choice list.widget").exists()
@@ -234,6 +245,8 @@ def test_execute_setup_upgrade_pulls_then_starts(
     assert commands[0] == [
         "docker",
         "compose",
+        "--profile",
+        "debug-ports",
         "-f",
         str(stack_dir / "docker-compose.yml"),
         "--project-directory",
@@ -243,6 +256,8 @@ def test_execute_setup_upgrade_pulls_then_starts(
     assert commands[1] == [
         "docker",
         "compose",
+        "--profile",
+        "debug-ports",
         "-f",
         str(stack_dir / "docker-compose.yml"),
         "--project-directory",
@@ -288,6 +303,9 @@ def test_run_setup_upgrade_preserves_existing_api_key_by_default(
         auth_mode=None,
         api_key=None,
         chatkit_domain_key=None,
+        public_ingress=None,
+        public_host=None,
+        publish_debug_ports=None,
         start_stack=None,
         install_docker=None,
         install_orcheo_skill=None,
@@ -313,6 +331,9 @@ def test_run_setup_upgrade_honors_explicit_api_key(
         auth_mode="api-key",
         api_key="explicit-token",
         chatkit_domain_key=None,
+        public_ingress=None,
+        public_host=None,
+        publish_debug_ports=None,
         start_stack=None,
         install_docker=None,
         install_orcheo_skill=None,
@@ -345,6 +366,9 @@ def test_run_setup_install_preserves_existing_env_by_default(
         auth_mode=None,
         api_key=None,
         chatkit_domain_key=None,
+        public_ingress=None,
+        public_host=None,
+        publish_debug_ports=None,
         start_stack=False,
         install_docker=False,
         install_orcheo_skill=None,
@@ -361,6 +385,39 @@ def test_run_setup_install_preserves_existing_env_by_default(
     assert config.auth_mode == "api-key"
     assert config.preserve_existing_backend_url is True
     assert config.api_key is None
+
+
+def test_run_setup_install_explicit_public_ingress_updates_backend_url_defaults(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stack_dir = tmp_path / "stack"
+    stack_dir.mkdir(parents=True, exist_ok=True)
+    (stack_dir / ".env").write_text(
+        "ORCHEO_API_URL=http://existing-api.test\n"
+        "VITE_ORCHEO_BACKEND_URL=http://existing-api.test\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("ORCHEO_STACK_DIR", str(stack_dir))
+
+    config = run_setup(
+        mode="install",
+        backend_url=None,
+        auth_mode="api-key",
+        api_key=None,
+        chatkit_domain_key=None,
+        public_ingress=True,
+        public_host="orcheo.example.com",
+        publish_debug_ports=True,
+        start_stack=False,
+        install_docker=False,
+        install_orcheo_skill=False,
+        yes=True,
+        manual_secrets=False,
+        console=Console(record=True),
+    )
+
+    assert config.backend_url == "https://orcheo.example.com"
+    assert config.preserve_existing_backend_url is False
 
 
 def test_execute_setup_preserves_secrets_on_upgrade(
@@ -703,6 +760,8 @@ def test_execute_setup_uses_privileged_docker_after_autoinstall_until_shell_refr
         "sudo",
         "docker",
         "compose",
+        "--profile",
+        "debug-ports",
         "-f",
         str(stack_dir / "docker-compose.yml"),
         "--project-directory",
@@ -713,6 +772,8 @@ def test_execute_setup_uses_privileged_docker_after_autoinstall_until_shell_refr
         "sudo",
         "docker",
         "compose",
+        "--profile",
+        "debug-ports",
         "-f",
         str(stack_dir / "docker-compose.yml"),
         "--project-directory",
@@ -1195,6 +1256,11 @@ def test_setup_build_env_updates_and_warn_missing_branch(
         auth_mode="api-key",
         api_key=None,
         chatkit_domain_key="domain_pk_live",
+        public_ingress_enabled=False,
+        public_host=None,
+        publish_debug_ports=True,
+        backend_upstreams="backend:8000",
+        canvas_upstream="canvas:5173",
         start_stack=False,
         install_docker_if_missing=True,
         install_orcheo_skill=True,
@@ -1202,6 +1268,7 @@ def test_setup_build_env_updates_and_warn_missing_branch(
     updates, defaults = setup_mod._build_env_updates(config)
     assert "ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN" not in updates
     assert "ORCHEO_AUTH_MODE" not in updates
+    assert updates["COMPOSE_PROFILES"] == "debug-ports"
     assert updates["VITE_ORCHEO_CHATKIT_DOMAIN_KEY"] == "domain_pk_live"
     assert defaults["ORCHEO_POSTGRES_PASSWORD"]
 
@@ -1300,6 +1367,9 @@ def test_run_setup_prints_generated_key_and_oauth_notice(
         auth_mode="api-key",
         api_key=None,
         chatkit_domain_key=None,
+        public_ingress=None,
+        public_host=None,
+        publish_debug_ports=None,
         start_stack=None,
         install_docker=None,
         install_orcheo_skill=None,
@@ -1316,6 +1386,9 @@ def test_run_setup_prints_generated_key_and_oauth_notice(
         auth_mode="oauth",
         api_key=None,
         chatkit_domain_key=None,
+        public_ingress=None,
+        public_host=None,
+        publish_debug_ports=None,
         start_stack=False,
         install_docker=False,
         install_orcheo_skill=None,
@@ -1324,6 +1397,71 @@ def test_run_setup_prints_generated_key_and_oauth_notice(
         console=oauth_console,
     )
     assert "OAuth mode selected" in oauth_console.export_text()
+
+
+def test_run_setup_public_ingress_derives_public_env_contract(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo_sdk.cli import setup as setup_mod
+
+    stack_dir = tmp_path / "stack"
+    stack_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("ORCHEO_STACK_DIR", str(stack_dir))
+
+    config = setup_mod.run_setup(
+        mode="install",
+        backend_url=None,
+        auth_mode="api-key",
+        api_key="token",
+        chatkit_domain_key=None,
+        public_ingress=True,
+        public_host="orcheo.example.com",
+        publish_debug_ports=True,
+        start_stack=False,
+        install_docker=False,
+        install_orcheo_skill=False,
+        yes=True,
+        manual_secrets=False,
+        console=Console(record=True),
+    )
+
+    updates, _ = setup_mod._build_env_updates(config)
+    assert config.backend_url == "https://orcheo.example.com"
+    assert updates["ORCHEO_API_URL"] == "https://orcheo.example.com"
+    assert updates["VITE_ORCHEO_BACKEND_URL"] == "https://orcheo.example.com"
+    assert updates["ORCHEO_CHATKIT_PUBLIC_BASE_URL"] == "https://orcheo.example.com"
+    assert updates["ORCHEO_CORS_ALLOW_ORIGINS"] == (
+        "https://orcheo.example.com,http://localhost:5173,http://127.0.0.1:5173"
+    )
+    assert updates["VITE_ALLOWED_HOSTS"] == "localhost,127.0.0.1,orcheo.example.com"
+    assert updates["COMPOSE_PROFILES"] == "public-ingress,debug-ports"
+    assert updates["ORCHEO_CADDY_SITE_ADDRESS"] == "orcheo.example.com"
+
+
+def test_run_setup_public_ingress_requires_hostname_with_yes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ORCHEO_STACK_DIR", str(tmp_path / "stack"))
+
+    with pytest.raises(typer.BadParameter, match="--public-host is required"):
+        run_setup(
+            mode="install",
+            backend_url=None,
+            auth_mode="api-key",
+            api_key=None,
+            chatkit_domain_key=None,
+            public_ingress=True,
+            public_host=None,
+            publish_debug_ports=None,
+            start_stack=False,
+            install_docker=False,
+            install_orcheo_skill=False,
+            yes=True,
+            manual_secrets=False,
+            console=Console(record=True),
+        )
 
 
 def test_setup_read_health_timeout_invalid_negative_and_print_summary(
