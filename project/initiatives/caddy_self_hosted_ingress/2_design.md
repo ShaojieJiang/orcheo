@@ -5,13 +5,13 @@
 - **Version:** 0.1
 - **Author:** Codex
 - **Date:** 2026-04-09
-- **Status:** Draft
+- **Status:** Approved
 
 ---
 
 ## Overview
 
-This design adds Caddy to the standard Orcheo stack as an optional ingress tier for public self-hosted installs. The target environment is a reachable self-hosted host, including cloud VMs and on-premise servers running supported host operating systems, where the operator controls DNS and inbound ports. Caddy terminates HTTPS for the public hostname and routes browser traffic to Canvas and backend services already present in the stack.
+This design adds Caddy to the standard Orcheo stack as an optional ingress tier for public self-hosted installs. The target environment is a reachable self-hosted Linux host, including cloud VMs and on-premise servers running Docker, which matches the Linux-based Orcheo stack images, where the operator controls DNS and inbound ports. Caddy terminates HTTPS for the public hostname and routes browser traffic to Canvas and backend services already present in the stack.
 
 The design intentionally does not try to replace Cloudflare Tunnel. Tunnel products solve public exposure for machines that are not directly reachable from the internet. Bundled Caddy instead standardizes the conventional deployment path for reachable self-hosted infrastructure. The outcome is a simpler, better-documented public install path without expanding Orcheo into a relay-network product.
 

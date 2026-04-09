@@ -26,10 +26,10 @@
 
 ## PROBLEM DEFINITION
 ### Objectives
-Make public self-hosted Orcheo installs a first-class path by bundling a standard HTTPS reverse proxy with the stack. Reduce the need for operators to assemble an external reverse-proxy layer or depend on Cloudflare Tunnel when running on reachable self-hosted infrastructure, including cloud VMs and on-premise servers on supported host operating systems.
+Make public self-hosted Orcheo installs a first-class path by bundling a standard HTTPS reverse proxy with the stack. Reduce the need for operators to assemble an external reverse-proxy layer or depend on Cloudflare Tunnel when running on reachable self-hosted infrastructure, including cloud VMs and on-premise Linux servers running Docker, which matches the Linux-based Orcheo stack images.
 
 ### Target users
-- Operators deploying Orcheo on reachable self-hosted hosts, including cloud VMs and on-premise servers running supported host operating systems.
+- Operators deploying Orcheo on reachable self-hosted Linux hosts, including cloud VMs and on-premise servers running Docker, which matches the Linux-based Orcheo stack images.
 - Teams who want a standard self-hosted install path with a custom domain and HTTPS.
 - Operators who need one public origin for Canvas, backend APIs, and workflow WebSockets.
 
@@ -116,7 +116,7 @@ Bundle Caddy as the public entrypoint for standard self-hosted stacks while keep
 - Preserve support for the workflow WebSocket endpoint already exposed by backend.
 - Avoid assuming path-prefix multi-tenancy for isolated stacks; same hostname + same path load balancing is only valid for replicas of one logical deployment with shared Postgres and Redis.
 - Document the requirement that operators manage DNS and open inbound ports separately from Orcheo setup.
-- Keep the solution compatible with standard self-hosted environments, including public cloud VMs and on-premise servers running supported host operating systems.
+- Keep the solution compatible with standard self-hosted Linux environments, including public cloud VMs and on-premise servers running Docker, which matches the Linux-based Orcheo stack images.
 
 ### AI/ML Considerations (if applicable)
 Not applicable.

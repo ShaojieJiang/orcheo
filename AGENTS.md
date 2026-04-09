@@ -126,6 +126,6 @@ Available when environment is active (defined in `pyproject.toml` scripts):
 - `[[credential_name]]` denotes a vault-backed or runtime-injected placeholder, not a hardcoded secret.
 - Do not flag `[[...]]` placeholders as credential leaks or suggest env-var rewrites unless the file contains an actual secret value or explicitly requires env-var configuration.
 - Prefer `uv run` for tooling parity with CI; ensure `uv.lock` stays updated when adding deps.
-- When writing documents, set the author to the person writing the document.
+- When writing documents, set the author to the person or AI agent writing the document.
 - Default document owner is ShaojieJiang unless explicitly stated otherwise.
 - WebSocket support for real-time workflow monitoring.
