@@ -66,6 +66,53 @@ Use this recipe when you want an isolated environment that mimics production wit
 
 _Vault note_: The compose example writes encrypted secrets to `/data/vault.sqlite`. Rotate `ORCHEO_VAULT_ENCRYPTION_KEY` regularly and back up the volume alongside the checkpoint database.
 
+## Reachable Self-Hosted Host (Bundled Caddy)
+
+This is the standard public self-hosted recipe for Orcheo on a reachable Linux host. The bundled stack keeps backend, Canvas, Postgres, Redis, worker, and beat on the Docker network while Caddy is the only service that needs public `80/443`.
+
+1. **Prepare the host**
+   - Point your DNS hostname at the machine that will run Docker.
+   - Open inbound `80` and `443`.
+   - Install Docker and the Orcheo SDK.
+2. **Install the stack with public ingress**
+   ```bash
+   orcheo install --public-ingress --public-host orcheo.example.com --start-stack
+   ```
+3. **Understand the routing contract**
+   - `https://orcheo.example.com/` -> Canvas
+   - `https://orcheo.example.com/api/...` -> backend HTTP routes
+   - `wss://orcheo.example.com/ws/...` -> backend WebSocket routes
+4. **Inspect the generated stack config when needed**
+   - `COMPOSE_PROFILES=public-ingress,debug-ports` keeps localhost debug proxies for `8000` and `5173`.
+   - `COMPOSE_PROFILES=public-ingress` disables those localhost debug ports so traffic only goes through Caddy.
+   - `ORCHEO_CADDY_BACKEND_UPSTREAMS` controls the backend upstream pool for `/api/*` and `/ws/*`.
+5. **Verify the public origin**
+   ```bash
+   curl -I https://orcheo.example.com/
+   curl https://orcheo.example.com/api/system/info
+   ```
+
+### Replica Topology
+
+The initial supported load-balancing topology is one logical deployment with multiple backend replicas that all share the same Postgres and Redis services. Caddy load-balances only replicas of that same deployment.
+
+Set explicit backend upstreams in `~/.orcheo/stack/.env` when you add more backend replicas:
+
+```env
+ORCHEO_CADDY_BACKEND_UPSTREAMS=backend:8000 backend-2:8000 backend-3:8000
+```
+
+Use this pattern only when the replicas share the same repository, checkpoint, ChatKit, and vault state through shared Postgres and Redis. Do not use one hostname and one path to multiplex isolated customer-specific stacks.
+
+### When To Put Something In Front Of Caddy
+
+Bundled Caddy is appropriate for standard self-hosted installs and moderate scale. Prefer a cloud-managed load balancer, ingress controller, CDN, or WAF in front of Caddy, or instead of Caddy, when you need:
+
+- higher-volume internet edge traffic
+- managed certificates outside the host
+- WAF, bot management, or DDoS shielding
+- platform-native ingress on Kubernetes or managed container platforms
+
 ## Managed Hosting (PostgreSQL, async pool)
 
 This deployment targets platforms such as Fly.io, Railway, or Kubernetes where Postgres is available as a managed service.
@@ -125,7 +172,9 @@ kubectl apply -k deploy/kubernetes
 
 - **Secrets**: Prefer platform-specific secret managers (Fly Secrets, Railway variables, AWS Parameter Store) and never bake DSNs or vault encryption keys into images.
 - **Observability**: Route application logs to structured logging (e.g., stdout + centralized collector) and enable tracing once Milestone 6 instrumentation lands.
-- **Scaling**: The FastAPI app is stateless. Scale horizontally by adding replicas while pointing them at the same checkpoint database.
+- **Scaling**: The FastAPI app is stateless. Scale horizontally by adding replicas while pointing them at the same checkpoint database. With bundled Caddy, keep replica pools limited to one logical deployment that shares Postgres and Redis.
 - **Backups**: Schedule database backups (pg_dump or managed snapshots) to protect workflow history and run states.
+
+Use Cloudflare Tunnel only when the host is not directly reachable from the internet. For reachable hosts with direct inbound ports, bundled Caddy is the simpler default.
 
 These recipes will evolve as additional milestones introduce credential vaulting, trigger services, and observability pipelines.

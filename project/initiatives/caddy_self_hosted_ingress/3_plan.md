@@ -27,13 +27,13 @@ Bundle Caddy into the standard Orcheo stack as the recommended public ingress ti
 
 #### Task Checklist
 
-- [ ] Task 1.1: Finalize initiative scope and confirm that bundled Caddy targets reachable self-hosted hosts, not tunnel replacement
+- [x] Task 1.1: Finalize initiative scope and confirm that bundled Caddy targets reachable self-hosted hosts, not tunnel replacement
   - Dependencies: None
-- [ ] Task 1.2: Define the public-origin env contract for Canvas, backend, and ChatKit
+- [x] Task 1.2: Define the public-origin env contract for Canvas, backend, and ChatKit
   - Dependencies: Task 1.1
-- [ ] Task 1.3: Decide whether backend/canvas raw ports stay published in public-ingress mode or become debug-only
+- [x] Task 1.3: Decide whether backend/canvas raw ports stay published in public-ingress mode or become debug-only
   - Dependencies: Task 1.1
-- [ ] Task 1.4: Define the supported initial topology for replica load balancing
+- [x] Task 1.4: Define the supported initial topology for replica load balancing
   - Dependencies: Task 1.1
 
 ---
@@ -44,13 +44,13 @@ Bundle Caddy into the standard Orcheo stack as the recommended public ingress ti
 
 #### Task Checklist
 
-- [ ] Task 2.1: Add Caddy service definition to `deploy/stack/docker-compose.yml`
+- [x] Task 2.1: Add Caddy service definition to `deploy/stack/docker-compose.yml`
   - Dependencies: Milestone 1
-- [ ] Task 2.2: Add a Caddy configuration file for Canvas, `/api/*`, and `/ws/*` routing
+- [x] Task 2.2: Add a Caddy configuration file for Canvas, `/api/*`, and `/ws/*` routing
   - Dependencies: Task 2.1
-- [ ] Task 2.3: Persist Caddy state required for automatic certificate management
+- [x] Task 2.3: Persist Caddy state required for automatic certificate management
   - Dependencies: Task 2.1
-- [ ] Task 2.4: Add stack-asset tests or validation for the new ingress files
+- [x] Task 2.4: Add stack-asset tests or validation for the new ingress files
   - Dependencies: Tasks 2.1, 2.2
 
 ---
@@ -61,13 +61,13 @@ Bundle Caddy into the standard Orcheo stack as the recommended public ingress ti
 
 #### Task Checklist
 
-- [ ] Task 3.1: Add setup prompts and flags for public-ingress mode and hostname input
+- [x] Task 3.1: Add setup prompts and flags for public-ingress mode and hostname input
   - Dependencies: Milestone 1
-- [ ] Task 3.2: Generate the env values required for public-origin routing
+- [x] Task 3.2: Generate the env values required for public-origin routing
   - Dependencies: Task 3.1
-- [ ] Task 3.3: Validate or warn on missing hostname/network prerequisites in setup summaries
+- [x] Task 3.3: Validate or warn on missing hostname/network prerequisites in setup summaries
   - Dependencies: Task 3.1
-- [ ] Task 3.4: Preserve the current local-only installation path without regression
+- [x] Task 3.4: Preserve the current local-only installation path without regression
   - Dependencies: Task 3.1
 
 ---
@@ -78,13 +78,13 @@ Bundle Caddy into the standard Orcheo stack as the recommended public ingress ti
 
 #### Task Checklist
 
-- [ ] Task 4.1: Add integration coverage for `/`, `/api/*`, and `/ws/*` through Caddy
+- [x] Task 4.1: Add integration coverage for `/`, `/api/*`, and `/ws/*` through Caddy
   - Dependencies: Milestone 2
-- [ ] Task 4.2: Validate Canvas API and WebSocket behavior through the public origin
+- [x] Task 4.2: Validate Canvas API and WebSocket behavior through the public origin
   - Dependencies: Tasks 3.2, 4.1
-- [ ] Task 4.3: Validate multiple backend replicas behind Caddy against shared Postgres and Redis
+- [x] Task 4.3: Validate multiple backend replicas behind Caddy against shared Postgres and Redis
   - Dependencies: Tasks 2.2, 3.2
-- [ ] Task 4.4: Confirm and document boundaries where cloud-managed ingress is preferable
+- [x] Task 4.4: Confirm and document boundaries where cloud-managed ingress is preferable
   - Dependencies: Task 4.3
 
 ---
@@ -95,13 +95,13 @@ Bundle Caddy into the standard Orcheo stack as the recommended public ingress ti
 
 #### Task Checklist
 
-- [ ] Task 5.1: Update `docs/manual_setup.md` with a public self-hosted ingress path
+- [x] Task 5.1: Update `docs/manual_setup.md` with a public self-hosted ingress path
   - Dependencies: Milestones 2, 3
-- [ ] Task 5.2: Update `docs/deployment.md` with the bundled Caddy topology and prerequisites
+- [x] Task 5.2: Update `docs/deployment.md` with the bundled Caddy topology and prerequisites
   - Dependencies: Milestones 2, 3
-- [ ] Task 5.3: Update `docs/environment_variables.md` with any new or revised ingress-related variables
+- [x] Task 5.3: Update `docs/environment_variables.md` with any new or revised ingress-related variables
   - Dependencies: Milestone 3
-- [ ] Task 5.4: Clarify in docs when Cloudflare Tunnel remains the right tool
+- [x] Task 5.4: Clarify in docs when Cloudflare Tunnel remains the right tool
   - Dependencies: Milestone 3
 - [ ] Task 5.5: Run end-to-end QA on a reachable self-hosted host
   - Dependencies: Milestones 3, 4
@@ -122,3 +122,4 @@ Bundle Caddy into the standard Orcheo stack as the recommended public ingress ti
 | Date | Author | Changes |
 |------|--------|---------|
 | 2026-04-09 | Codex | Initial draft |
+| 2026-04-09 | Codex | Implemented bundled Caddy ingress assets, setup flow, validation, and docs; reachable-host manual QA remains pending |

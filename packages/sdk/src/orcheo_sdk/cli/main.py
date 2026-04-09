@@ -230,6 +230,9 @@ def _run_install_flow(
     auth_mode: str | None,
     api_key: str | None,
     chatkit_domain_key: str | None,
+    public_ingress: bool | None,
+    public_host: str | None,
+    publish_debug_ports: bool | None,
     start_stack: bool | None,
     install_docker: bool | None,
     install_orcheo_skill: bool | None,
@@ -245,6 +248,9 @@ def _run_install_flow(
         auth_mode=auth_value,
         api_key=api_key,
         chatkit_domain_key=chatkit_domain_key,
+        public_ingress=public_ingress,
+        public_host=public_host,
+        publish_debug_ports=publish_debug_ports,
         start_stack=start_stack,
         install_docker=install_docker,
         install_orcheo_skill=install_orcheo_skill,
@@ -268,6 +274,26 @@ def _resolve_stack_project_dir() -> Path:
     return Path.home() / ".orcheo" / "stack"
 
 
+def _compose_profile_args(stack_dir: Path) -> list[str]:
+    env_file = stack_dir / ".env"
+    if not env_file.exists():
+        return []
+    profiles: list[str] = []
+    for raw_line in env_file.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if not line.startswith("COMPOSE_PROFILES="):
+            continue
+        _, _, value = line.partition("=")
+        for profile in value.split(","):
+            normalized = profile.strip().strip('"').strip("'")
+            if normalized:
+                profiles.extend(["--profile", normalized])
+        break
+    return profiles
+
+
 def _stack_compose_base_args() -> list[str]:
     stack_dir = _resolve_stack_project_dir()
     compose_file = stack_dir / "docker-compose.yml"
@@ -278,6 +304,7 @@ def _stack_compose_base_args() -> list[str]:
     return [
         "docker",
         "compose",
+        *_compose_profile_args(stack_dir),
         "-f",
         str(compose_file),
         "--project-directory",
@@ -345,6 +372,33 @@ def install_command(
             ),
         ),
     ] = None,
+    public_ingress: Annotated[
+        bool | None,
+        typer.Option(
+            "--public-ingress/--local-only",
+            help=(
+                "Enable bundled Caddy ingress for a reachable public hostname, "
+                "or keep the current local-only stack path."
+            ),
+        ),
+    ] = None,
+    public_host: Annotated[
+        str | None,
+        typer.Option(
+            "--public-host",
+            help="Public hostname served by bundled Caddy in public-ingress mode.",
+        ),
+    ] = None,
+    publish_debug_ports: Annotated[
+        bool | None,
+        typer.Option(
+            "--publish-debug-ports/--hide-debug-ports",
+            help=(
+                "Keep localhost backend/canvas debug ports published alongside the "
+                "selected install mode."
+            ),
+        ),
+    ] = None,
     start_stack: Annotated[
         bool | None,
         typer.Option(
@@ -389,6 +443,9 @@ def install_command(
         auth_mode=auth_mode,
         api_key=api_key,
         chatkit_domain_key=chatkit_domain_key,
+        public_ingress=public_ingress,
+        public_host=public_host,
+        publish_debug_ports=publish_debug_ports,
         start_stack=start_stack,
         install_docker=install_docker,
         install_orcheo_skill=install_orcheo_skill,
@@ -434,6 +491,33 @@ def install_upgrade_command(
             ),
         ),
     ] = None,
+    public_ingress: Annotated[
+        bool | None,
+        typer.Option(
+            "--public-ingress/--local-only",
+            help=(
+                "Enable bundled Caddy ingress for a reachable public hostname, "
+                "or keep the current local-only stack path."
+            ),
+        ),
+    ] = None,
+    public_host: Annotated[
+        str | None,
+        typer.Option(
+            "--public-host",
+            help="Public hostname served by bundled Caddy in public-ingress mode.",
+        ),
+    ] = None,
+    publish_debug_ports: Annotated[
+        bool | None,
+        typer.Option(
+            "--publish-debug-ports/--hide-debug-ports",
+            help=(
+                "Keep localhost backend/canvas debug ports published alongside the "
+                "selected install mode."
+            ),
+        ),
+    ] = None,
     start_stack: Annotated[
         bool | None,
         typer.Option(
@@ -476,6 +560,9 @@ def install_upgrade_command(
         auth_mode=auth_mode,
         api_key=api_key,
         chatkit_domain_key=chatkit_domain_key,
+        public_ingress=public_ingress,
+        public_host=public_host,
+        publish_debug_ports=publish_debug_ports,
         start_stack=start_stack,
         install_docker=install_docker,
         install_orcheo_skill=install_orcheo_skill,

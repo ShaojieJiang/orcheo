@@ -6,7 +6,7 @@ services:
   postgres:
     image: postgres:16-alpine
     ports:
-      - "5432:5432"
+      - "127.0.0.1:${ORCHEO_POSTGRES_DEBUG_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     environment:
@@ -22,7 +22,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "127.0.0.1:${ORCHEO_REDIS_DEBUG_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
     command: redis-server --appendonly yes --appendfsync everysec
@@ -35,8 +35,6 @@ services:
   backend:
     image: ${ORCHEO_STACK_IMAGE:-ghcr.io/shaojiejiang/orcheo-stack:latest}
     env_file: .env
-    ports:
-      - "8000:8000"
     volumes:
       - orcheo_data:/data
       - ./chatkit_widgets:/app/examples/chatkit_widgets/widgets:ro
@@ -71,7 +69,27 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
-    command: python -m uvicorn orcheo_backend.app:app --host 0.0.0.0 --port 8000
+    command: >
+      python -m uvicorn orcheo_backend.app:app
+      --host 0.0.0.0
+      --port 8000
+      --proxy-headers
+
+  backend-debug:
+    image: caddy:2
+    profiles:
+      - debug-ports
+    depends_on:
+      - backend
+    ports:
+      - "127.0.0.1:${ORCHEO_BACKEND_DEBUG_PORT:-8000}:8000"
+    command:
+      - caddy
+      - reverse-proxy
+      - --from
+      - :8000
+      - --to
+      - backend:8000
 
   worker:
     image: ${ORCHEO_STACK_IMAGE:-ghcr.io/shaojiejiang/orcheo-stack:latest}
@@ -154,8 +172,6 @@ services:
   canvas:
     image: ${ORCHEO_CANVAS_IMAGE:-ghcr.io/shaojiejiang/orcheo-canvas:latest}
     env_file: .env
-    ports:
-      - "5173:5173"
     environment:
       VITE_ORCHEO_BACKEND_URL: ${VITE_ORCHEO_BACKEND_URL:-http://localhost:8000}
       VITE_ORCHEO_AUTH_ISSUER: ${VITE_ORCHEO_AUTH_ISSUER:-}
@@ -168,6 +184,7 @@ services:
       VITE_ORCHEO_AUTH_PROVIDER_GOOGLE: ${VITE_ORCHEO_AUTH_PROVIDER_GOOGLE:-}
       VITE_ORCHEO_AUTH_PROVIDER_GITHUB: ${VITE_ORCHEO_AUTH_PROVIDER_GITHUB:-}
       VITE_ORCHEO_CHATKIT_DOMAIN_KEY: ${VITE_ORCHEO_CHATKIT_DOMAIN_KEY:?set VITE_ORCHEO_CHATKIT_DOMAIN_KEY}
+      VITE_ALLOWED_HOSTS: ${VITE_ALLOWED_HOSTS:-localhost,127.0.0.1}
     depends_on:
       - backend
     healthcheck:
@@ -177,7 +194,41 @@ services:
       retries: 5
       start_period: 10s
 
+  canvas-debug:
+    image: caddy:2
+    profiles:
+      - debug-ports
+    depends_on:
+      - canvas
+    ports:
+      - "127.0.0.1:${ORCHEO_CANVAS_DEBUG_PORT:-5173}:5173"
+    command:
+      - caddy
+      - reverse-proxy
+      - --from
+      - :5173
+      - --to
+      - canvas:5173
+
+  caddy:
+    image: caddy:2
+    profiles:
+      - public-ingress
+    env_file: .env
+    depends_on:
+      - backend
+      - canvas
+    ports:
+      - "${ORCHEO_CADDY_HTTP_BIND:-0.0.0.0}:80:80"
+      - "${ORCHEO_CADDY_HTTPS_BIND:-0.0.0.0}:443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
 volumes:
   postgres_data:
   redis_data:
   orcheo_data:
+  caddy_data:
+  caddy_config:

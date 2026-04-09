@@ -25,7 +25,7 @@ services read configuration via Dynaconf with the `ORCHEO_` prefix.
 | `ORCHEO_CHATKIT_WIDGET_ACTION_TYPES` | `["submit"]` | Comma/JSON list of action types | Widget action types the ChatKit server will dispatch back to workflows (`chatkit/server.py`). |
 | `ORCHEO_HOST` | `0.0.0.0` | Hostname or IP string | Network interface to bind the FastAPI app (`config/loader.py`). |
 | `ORCHEO_PORT` | `8000` | Integer (1‑65535) | TCP port exposed by the FastAPI service (`config/loader.py`). |
-| `ORCHEO_CORS_ALLOW_ORIGINS` | `["http://localhost:5173","http://127.0.0.1:5173"]` | JSON array or comma-separated list of origins | CORS allow-list used when constructing the FastAPI middleware (`factory.py`). |
+| `ORCHEO_CORS_ALLOW_ORIGINS` | `["http://localhost:5173","http://127.0.0.1:5173"]` | JSON array or comma-separated list of origins | CORS allow-list used when constructing the FastAPI middleware (`factory.py`). `orcheo install --public-ingress` sets this to the public HTTPS origin and keeps localhost origins when debug ports remain enabled. |
 | `ORCHEO_UPDATE_CHECK_TIMEOUT_SECONDS` | `3.0` | Float > 0 | Timeout for backend package registry lookups used by `/api/system/info` (`app/versioning.py`). |
 | `ORCHEO_UPDATE_CHECK_RETRIES` | `1` | Integer ≥ 0 | Retry count for backend package registry lookups used by `/api/system/info` (`app/versioning.py`). |
 | `ORCHEO_CANVAS_VERSION` | _none_ | Version string (for example `0.8.1`) | Optional current Canvas version reported by `/api/system/info` to compare with npm latest (`app/versioning.py`). |
@@ -44,7 +44,7 @@ Note: `ORCHEO_REPOSITORY_BACKEND=inmemory` stores runs in-process only and does 
 
 | Variable | Default | Valid values | Purpose |
 | --- | --- | --- | --- |
-| `VITE_ORCHEO_BACKEND_URL` | `http://localhost:8000` | HTTP(S) URL | Base URL for the Orcheo backend API used by Canvas. |
+| `VITE_ORCHEO_BACKEND_URL` | `http://localhost:8000` | HTTP(S) URL | Base URL for the Orcheo backend API used by Canvas. Public-ingress installs set this to the shared public origin (for example, `https://orcheo.example.com`). |
 | `VITE_ORCHEO_AUTH_ISSUER` | _none_ | OIDC issuer URL | OIDC issuer used for IdP-only login (Canvas OAuth). |
 | `VITE_ORCHEO_AUTH_CLIENT_ID` | _none_ | String | OAuth client ID registered for the Canvas SPA. |
 | `VITE_ORCHEO_AUTH_REDIRECT_URI` | `${origin}/auth/callback` | URL | Redirect URI registered with the IdP (Canvas callback route). |
@@ -58,7 +58,7 @@ Note: `ORCHEO_REPOSITORY_BACKEND=inmemory` stores runs in-process only and does 
 | `VITE_ORCHEO_AUTH_PROVIDER_GITHUB` | _none_ | String | Provider hint value for GitHub when `VITE_ORCHEO_AUTH_PROVIDER_PARAM` is set. |
 | `VITE_ORCHEO_CHATKIT_DOMAIN_KEY` | _none_ | String | ChatKit domain key used by Canvas public chat surfaces. Setup prompts for this value; if left unset/placeholder, ChatKit UI features remain disabled until configured. |
 | `VITE_ORCHEO_CHATKIT_DEFAULT_DOMAIN_KEY` | `domain_pk_localhost_dev` | String | Dev-only fallback domain key used when neither `VITE_ORCHEO_CHATKIT_DOMAIN_KEY` nor runtime `window.__ORCHEO_CONFIG__.chatkitDomainKey` is provided (`features/chatkit/lib/chatkit-client.ts`). |
-| `VITE_ALLOWED_HOSTS` | _none_ | Comma-separated hostnames | Hostnames the Canvas server will accept requests for (maps to `server.allowedHosts` in `vite.config.ts`). Required when Canvas is served on a custom domain or behind a reverse proxy. |
+| `VITE_ALLOWED_HOSTS` | `localhost,127.0.0.1` | Comma-separated hostnames | Hostnames the Canvas server will accept requests for (maps to `server.allowedHosts` in `vite.config.ts`). Public-ingress installs append the configured public hostname. |
 
 ## Vault configuration
 
@@ -160,6 +160,19 @@ Note: `ORCHEO_REPOSITORY_BACKEND=inmemory` stores runs in-process only and does 
 | `ORCHEO_POSTGRES_PASSWORD` | _auto-generated on install_ | Non-empty string | PostgreSQL password written to stack `.env` by `orcheo install` and consumed by `deploy/stack/docker-compose.yml` to configure the Postgres service and backend DSN. |
 | `ORCHEO_STACK_ASSET_BASE_URL` | _unset_ | HTTP(S) URL | Optional custom mirror base URL for per-file stack asset downloads. When set, `orcheo install` skips GitHub tag discovery and downloads stack assets from this mirror (`cli/setup.py`). |
 | `ORCHEO_SETUP_HEALTH_POLL_TIMEOUT_SECONDS` | `60` | Integer ≥ 0 | Timeout window used by `orcheo install` when waiting for `docker compose` backend health checks (`cli/setup.py`). |
+| `ORCHEO_PUBLIC_INGRESS_ENABLED` | `false` | Boolean (`1/0`, `true/false`, `yes/no`, `on/off`) | Enables the bundled Caddy ingress profile written by `orcheo install`. When false, the stack stays in the localhost-friendly debug-port profile. |
+| `ORCHEO_PUBLIC_HOST` | _unset_ | Hostname | Public hostname served by bundled Caddy. Required when `ORCHEO_PUBLIC_INGRESS_ENABLED=true`. |
+| `ORCHEO_PUBLISH_DEBUG_PORTS` | `true` | Boolean (`1/0`, `true/false`, `yes/no`, `on/off`) | Keeps localhost backend and Canvas debug proxies published while using the selected stack mode. In public-ingress mode, setting this to false leaves Caddy as the only browser entrypoint. |
+| `COMPOSE_PROFILES` | `debug-ports` | Comma-separated Docker Compose profile names | Profiles activated by `orcheo install` and `orcheo stack`. Typical values are `debug-ports`, `public-ingress`, or `public-ingress,debug-ports`. |
+| `ORCHEO_CADDY_SITE_ADDRESS` | _unset_ | Hostname or Caddy site address | Site address consumed by `deploy/stack/Caddyfile`. Usually the same value as `ORCHEO_PUBLIC_HOST`. |
+| `ORCHEO_CADDY_BACKEND_UPSTREAMS` | `backend:8000` | Space-delimited `host:port` upstream list | Backend upstream pool used by bundled Caddy for `/api/*` and `/ws/*`. Multiple entries are for replicas of the same logical deployment only. |
+| `ORCHEO_CADDY_CANVAS_UPSTREAM` | `canvas:5173` | `host:port` | Internal Canvas upstream used by bundled Caddy for `/` and SPA routes. |
+| `ORCHEO_CADDY_HTTP_BIND` | `0.0.0.0` | IP string | Host bind address for Caddy's public port `80` in `deploy/stack/docker-compose.yml`. |
+| `ORCHEO_CADDY_HTTPS_BIND` | `0.0.0.0` | IP string | Host bind address for Caddy's public port `443` in `deploy/stack/docker-compose.yml`. |
+| `ORCHEO_BACKEND_DEBUG_PORT` | `8000` | Integer (1‑65535) | Localhost port published by the `backend-debug` proxy profile. |
+| `ORCHEO_CANVAS_DEBUG_PORT` | `5173` | Integer (1‑65535) | Localhost port published by the `canvas-debug` proxy profile. |
+| `ORCHEO_POSTGRES_DEBUG_PORT` | `5432` | Integer (1‑65535) | Localhost port bound for the bundled Postgres service in the stack compose file. |
+| `ORCHEO_REDIS_DEBUG_PORT` | `6379` | Integer (1‑65535) | Localhost port bound for the bundled Redis service in the stack compose file. |
 | `ORCHEO_AUTH_ISSUER` | _none_ | OIDC issuer URL | OAuth issuer URL for CLI browser-based login. Can also be set in a `cli.toml` profile via `auth_issuer` (`cli/auth/config.py`). |
 | `ORCHEO_AUTH_CLIENT_ID` | _none_ | String | OAuth client ID for CLI login. Can also be set in a `cli.toml` profile via `auth_client_id` (`cli/auth/config.py`). |
 | `ORCHEO_AUTH_SCOPES` | `openid profile email` | Space-delimited scopes | OAuth scopes requested during CLI login. Can also be set in a `cli.toml` profile via `auth_scopes` (`cli/auth/config.py`). |

@@ -427,12 +427,22 @@ def test_build_env_updates(monkeypatch):
         auth_mode="api-key",
         api_key="provided",
         chatkit_domain_key="domain",
+        public_ingress_enabled=False,
+        public_host=None,
+        publish_debug_ports=True,
+        backend_upstreams="backend:8000",
+        canvas_upstream="canvas:5173",
         start_stack=False,
         install_docker_if_missing=False,
         install_orcheo_skill=False,
     )
     updates, defaults = setup._build_env_updates(config, requested_stack_version="2.0")
     assert updates["ORCHEO_API_URL"] == "http://backend"
+    assert updates["ORCHEO_CHATKIT_PUBLIC_BASE_URL"] == "http://localhost:5173"
+    assert updates["ORCHEO_CORS_ALLOW_ORIGINS"] == (
+        "http://localhost:5173,http://127.0.0.1:5173"
+    )
+    assert updates["COMPOSE_PROFILES"] == "debug-ports"
     assert updates["VITE_ORCHEO_CHATKIT_DOMAIN_KEY"] == "domain"
     assert updates["ORCHEO_STACK_IMAGE"] == f"{setup._STACK_IMAGE_REPOSITORY}:2.0"
     assert defaults["ORCHEO_POSTGRES_PASSWORD"] == "safe"
@@ -490,6 +500,11 @@ def test_ensure_stack_assets_fresh(monkeypatch, tmp_path):
         auth_mode="api-key",
         api_key=None,
         chatkit_domain_key=None,
+        public_ingress_enabled=False,
+        public_host=None,
+        publish_debug_ports=True,
+        backend_upstreams="backend:8000",
+        canvas_upstream="canvas:5173",
         start_stack=False,
         install_docker_if_missing=False,
         install_orcheo_skill=False,
@@ -533,6 +548,11 @@ def test_ensure_stack_assets_existing_env(monkeypatch, tmp_path):
         auth_mode="api-key",
         api_key=None,
         chatkit_domain_key=None,
+        public_ingress_enabled=False,
+        public_host=None,
+        publish_debug_ports=True,
+        backend_upstreams="backend:8000",
+        canvas_upstream="canvas:5173",
         start_stack=False,
         install_docker_if_missing=False,
         install_orcheo_skill=False,
@@ -546,6 +566,7 @@ def test_ensure_stack_assets_existing_env(monkeypatch, tmp_path):
 def test_run_setup_generates_api_key(monkeypatch, tmp_path):
     monkeypatch.setattr(secrets, "token_urlsafe", lambda _: "tokenized")
     monkeypatch.setattr(setup, "_resolve_stack_env_file", lambda: tmp_path / ".env")
+    monkeypatch.setattr(setup.typer, "confirm", lambda _prompt, default: default)
     console = make_console()
     config = setup.run_setup(
         mode="install",
@@ -553,6 +574,9 @@ def test_run_setup_generates_api_key(monkeypatch, tmp_path):
         auth_mode="api-key",
         api_key=None,
         chatkit_domain_key="domain",
+        public_ingress=None,
+        public_host=None,
+        publish_debug_ports=None,
         start_stack=False,
         install_docker=False,
         install_orcheo_skill=False,
@@ -604,6 +628,11 @@ def test_execute_setup_without_start(monkeypatch, tmp_path):
         auth_mode="api-key",
         api_key="token",
         chatkit_domain_key=None,
+        public_ingress_enabled=False,
+        public_host=None,
+        publish_debug_ports=True,
+        backend_upstreams="backend:8000",
+        canvas_upstream="canvas:5173",
         start_stack=False,
         install_docker_if_missing=False,
         install_orcheo_skill=True,
@@ -638,6 +667,11 @@ def test_execute_setup_with_start(monkeypatch, tmp_path):
         auth_mode="api-key",
         api_key="token",
         chatkit_domain_key=None,
+        public_ingress_enabled=False,
+        public_host=None,
+        publish_debug_ports=True,
+        backend_upstreams="backend:8000",
+        canvas_upstream="canvas:5173",
         start_stack=True,
         install_docker_if_missing=False,
         install_orcheo_skill=False,
@@ -669,6 +703,11 @@ def test_execute_setup_missing_docker_command(monkeypatch, tmp_path):
         auth_mode="api-key",
         api_key="token",
         chatkit_domain_key=None,
+        public_ingress_enabled=False,
+        public_host=None,
+        publish_debug_ports=True,
+        backend_upstreams="backend:8000",
+        canvas_upstream="canvas:5173",
         start_stack=True,
         install_docker_if_missing=False,
         install_orcheo_skill=False,
@@ -707,6 +746,11 @@ def test_print_summary():
         auth_mode="api-key",
         api_key="token",
         chatkit_domain_key=None,
+        public_ingress_enabled=False,
+        public_host=None,
+        publish_debug_ports=True,
+        backend_upstreams="backend:8000",
+        canvas_upstream="canvas:5173",
         start_stack=True,
         install_docker_if_missing=False,
         install_orcheo_skill=False,

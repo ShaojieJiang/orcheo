@@ -35,6 +35,7 @@ _GITHUB_TAGS_API_URL = "https://api.github.com/repos/ShaojieJiang/orcheo/tags"
 _STACK_IMAGE_REPOSITORY = "ghcr.io/shaojiejiang/orcheo-stack"
 _STACK_ASSET_FILES = (
     "docker-compose.yml",
+    "Caddyfile",
     "Dockerfile.orcheo",
     ".env.example",
     "chatkit_widgets/Single-choice list.widget",
@@ -63,6 +64,11 @@ class SetupConfig:
     auth_mode: AuthMode
     api_key: str | None
     chatkit_domain_key: str | None
+    public_ingress_enabled: bool
+    public_host: str | None
+    publish_debug_ports: bool
+    backend_upstreams: str
+    canvas_upstream: str
     start_stack: bool
     install_docker_if_missing: bool
     install_orcheo_skill: bool
@@ -568,8 +574,8 @@ def _resolve_backend_url(
     mode: SetupMode,
     yes: bool,
     env_exists: bool = False,
+    default_backend_url: str = "http://localhost:8000",
 ) -> tuple[str, bool]:
-    default_backend_url = "http://localhost:8000"
     if backend_url:
         return backend_url, False
     if mode == "upgrade" or env_exists:
@@ -588,6 +594,206 @@ def _resolve_backend_url(
     if yes:
         return default_backend_url, False
     return typer.prompt("Backend URL", default=default_backend_url), False
+
+
+def _resolve_public_ingress_enabled(
+    public_ingress: bool | None,
+    *,
+    yes: bool,
+    env_file: Path,
+    env_exists: bool,
+) -> bool:
+    if public_ingress is not None:
+        return public_ingress
+    if env_exists:
+        existing = _parse_bool_value(
+            _read_env_value(env_file, "ORCHEO_PUBLIC_INGRESS_ENABLED")
+        )
+        if existing is not None:
+            return existing
+    if yes:
+        return False
+    return typer.confirm(
+        "Enable bundled public HTTPS ingress with Caddy?",
+        default=False,
+    )
+
+
+def _resolve_public_host(
+    public_host: str | None,
+    *,
+    public_ingress_enabled: bool,
+    yes: bool,
+    env_file: Path,
+    env_exists: bool,
+) -> str | None:
+    if not public_ingress_enabled:
+        return None
+    normalized = _normalize_optional_value(public_host)
+    if normalized is not None:
+        return _normalize_public_host(normalized)
+    if env_exists:
+        existing = _read_env_value(env_file, "ORCHEO_PUBLIC_HOST")
+        if existing:
+            return _normalize_public_host(existing)
+    if yes:
+        raise typer.BadParameter(
+            "--public-host is required when bundled public ingress is enabled."
+        )
+    return _normalize_public_host(typer.prompt("Public hostname"))
+
+
+def _resolve_publish_debug_ports(
+    publish_debug_ports: bool | None,
+    *,
+    public_ingress_enabled: bool,
+    yes: bool,
+    env_file: Path,
+    env_exists: bool,
+) -> bool:
+    if publish_debug_ports is not None:
+        return publish_debug_ports
+    if env_exists:
+        existing = _parse_bool_value(
+            _read_env_value(env_file, "ORCHEO_PUBLISH_DEBUG_PORTS")
+        )
+        if existing is not None:
+            return existing
+    if not public_ingress_enabled:
+        return True
+    if yes:
+        return True
+    return typer.confirm(
+        "Keep localhost debug ports for backend and Canvas published?",
+        default=True,
+    )
+
+
+def _resolve_public_ingress_config(
+    *,
+    public_ingress: bool | None,
+    public_host: str | None,
+    publish_debug_ports: bool | None,
+    yes: bool,
+    env_file: Path,
+    env_exists: bool,
+) -> tuple[bool, str | None, bool]:
+    resolved_public_ingress_enabled = _resolve_public_ingress_enabled(
+        public_ingress,
+        yes=yes,
+        env_file=env_file,
+        env_exists=env_exists,
+    )
+    resolved_public_host = _resolve_public_host(
+        public_host,
+        public_ingress_enabled=resolved_public_ingress_enabled,
+        yes=yes,
+        env_file=env_file,
+        env_exists=env_exists,
+    )
+    resolved_publish_debug_ports = _resolve_publish_debug_ports(
+        publish_debug_ports,
+        public_ingress_enabled=resolved_public_ingress_enabled,
+        yes=yes,
+        env_file=env_file,
+        env_exists=env_exists,
+    )
+    return (
+        resolved_public_ingress_enabled,
+        resolved_public_host,
+        resolved_publish_debug_ports,
+    )
+
+
+def _resolve_setup_toggles(
+    *,
+    start_stack: bool | None,
+    install_docker: bool | None,
+    install_orcheo_skill: bool | None,
+    yes: bool,
+) -> tuple[bool, bool, bool]:
+    resolved_start_stack = _resolve_bool(
+        start_stack,
+        yes_default=yes,
+        prompt="Start stack with docker compose after install?",
+        default=True,
+    )
+    resolved_install_docker = _resolve_bool(
+        install_docker,
+        yes_default=yes,
+        prompt="Install Docker when missing?",
+        default=True,
+    )
+    resolved_install_orcheo_skill = _resolve_bool(
+        install_orcheo_skill,
+        yes_default=yes,
+        prompt="Install Orcheo skill for AI coding agents (Claude, Codex)?",
+        default=True,
+    )
+    return (
+        resolved_start_stack,
+        resolved_install_docker,
+        resolved_install_orcheo_skill,
+    )
+
+
+def _resolve_stack_upstreams(env_file: Path, *, env_exists: bool) -> tuple[str, str]:
+    backend_upstreams = "backend:8000"
+    canvas_upstream = "canvas:5173"
+    if not env_exists:
+        return backend_upstreams, canvas_upstream
+    existing_backend_upstreams = _read_env_value(
+        env_file, "ORCHEO_CADDY_BACKEND_UPSTREAMS"
+    )
+    existing_canvas_upstream = _read_env_value(env_file, "ORCHEO_CADDY_CANVAS_UPSTREAM")
+    if existing_backend_upstreams:
+        backend_upstreams = existing_backend_upstreams
+    if existing_canvas_upstream:
+        canvas_upstream = existing_canvas_upstream
+    return backend_upstreams, canvas_upstream
+
+
+def _print_setup_resolution_notes(
+    *,
+    console: Console,
+    resolved_api_key: str | None,
+    manual_secrets: bool,
+    yes: bool,
+    resolved_auth_mode: AuthMode,
+    preserve_existing_backend_url: bool,
+    resolved_public_ingress_enabled: bool,
+    resolved_public_host: str | None,
+    resolved_publish_debug_ports: bool,
+) -> None:
+    if resolved_api_key and not manual_secrets and not yes:
+        console.print("[green]Generated API key locally.[/green]")
+    if resolved_auth_mode == "api-key" and resolved_api_key is None:
+        console.print(
+            "[cyan]Keeping existing API bootstrap token. "
+            "Pass --api-key to rotate it.[/cyan]"
+        )
+    if preserve_existing_backend_url:
+        console.print(
+            "[cyan]Keeping existing backend URL. "
+            "Pass --backend-url to update it.[/cyan]"
+        )
+    if resolved_public_ingress_enabled:
+        console.print(
+            "[cyan]Bundled public ingress enabled for "
+            f"{resolved_public_host}. Caddy expects DNS for that hostname and "
+            "inbound 80/443 to reach this host.[/cyan]"
+        )
+        if not resolved_publish_debug_ports:
+            console.print(
+                "[cyan]Local backend/canvas debug ports will stay disabled; "
+                "access should go through the public hostname only.[/cyan]"
+            )
+    if resolved_auth_mode == "oauth":
+        console.print(
+            "[yellow]OAuth mode selected. Configure ORCHEO_AUTH_ISSUER, "
+            "ORCHEO_AUTH_AUDIENCE, ORCHEO_AUTH_JWKS_URL, and matching "
+            "VITE_ORCHEO_AUTH_* values in your stack .env.[/yellow]"
+        )
 
 
 def _resolve_auth_mode(auth_mode: AuthMode | None, *, yes: bool) -> AuthMode:
@@ -666,6 +872,37 @@ def _normalize_dotenv_value(value: str | None) -> str | None:
     ):
         normalized = normalized[1:-1].strip()
     return normalized or None
+
+
+def _parse_bool_value(value: str | None) -> bool | None:
+    normalized = _normalize_dotenv_value(value)
+    if normalized is None:
+        return None
+    lowered = normalized.lower()
+    if lowered in {"1", "true", "yes", "on"}:
+        return True
+    if lowered in {"0", "false", "no", "off"}:
+        return False
+    return None
+
+
+def _normalize_public_host(value: str) -> str:
+    candidate = value.strip().lower()
+    if not candidate:
+        raise typer.BadParameter("Public hostname is required.")
+    if "://" in candidate:
+        raise typer.BadParameter(
+            "Public hostname must be a hostname only, without http:// or https://."
+        )
+    if any(token in candidate for token in {"/", "?", "#", " "}):
+        raise typer.BadParameter(
+            "Public hostname must not contain paths, query strings, or spaces."
+        )
+    if not _PUBLIC_HOST_PATTERN.fullmatch(candidate):
+        raise typer.BadParameter(
+            "Public hostname may only contain letters, numbers, dots, and hyphens."
+        )
+    return candidate
 
 
 def _resolve_chatkit_domain_key(
@@ -848,6 +1085,52 @@ def _sync_stack_assets_with_best_source(
 
 
 _ENV_KEY_PATTERN = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=")
+_PUBLIC_HOST_PATTERN = re.compile(r"^[A-Za-z0-9.-]+$")
+
+
+def _compose_profiles(config: SetupConfig) -> str:
+    profiles: list[str] = []
+    if config.public_ingress_enabled:
+        profiles.append("public-ingress")
+    if not config.public_ingress_enabled or config.publish_debug_ports:
+        profiles.append("debug-ports")
+    return ",".join(profiles)
+
+
+def _build_cors_origins(config: SetupConfig) -> str:
+    origins: list[str] = []
+    if config.public_ingress_enabled and config.public_host is not None:
+        origins.append(f"https://{config.public_host}")
+    if not config.public_ingress_enabled or config.publish_debug_ports:
+        origins.extend(
+            [
+                "http://localhost:5173",
+                "http://127.0.0.1:5173",
+            ]
+        )
+    deduped = list(dict.fromkeys(origins))
+    return ",".join(deduped)
+
+
+def _build_allowed_hosts(config: SetupConfig) -> str:
+    hosts = ["localhost", "127.0.0.1"]
+    if config.public_ingress_enabled and config.public_host is not None:
+        hosts.append(config.public_host)
+    return ",".join(dict.fromkeys(hosts))
+
+
+def _build_chatkit_public_base_url(config: SetupConfig) -> str:
+    if config.public_ingress_enabled and config.public_host is not None:
+        return f"https://{config.public_host}"
+    return "http://localhost:5173"
+
+
+def _build_healthcheck_url(config: SetupConfig) -> str | None:
+    if config.public_ingress_enabled:
+        if config.publish_debug_ports:
+            return "http://localhost:8000"
+        return None
+    return config.backend_url
 
 
 def _build_env_updates(
@@ -863,6 +1146,16 @@ def _build_env_updates(
     updates: dict[str, str] = {
         "ORCHEO_API_URL": config.backend_url,
         "VITE_ORCHEO_BACKEND_URL": config.backend_url,
+        "ORCHEO_CHATKIT_PUBLIC_BASE_URL": _build_chatkit_public_base_url(config),
+        "ORCHEO_CORS_ALLOW_ORIGINS": _build_cors_origins(config),
+        "VITE_ALLOWED_HOSTS": _build_allowed_hosts(config),
+        "ORCHEO_PUBLIC_INGRESS_ENABLED": str(config.public_ingress_enabled).lower(),
+        "ORCHEO_PUBLIC_HOST": config.public_host or "",
+        "ORCHEO_PUBLISH_DEBUG_PORTS": str(config.publish_debug_ports).lower(),
+        "COMPOSE_PROFILES": _compose_profiles(config),
+        "ORCHEO_CADDY_SITE_ADDRESS": config.public_host or "",
+        "ORCHEO_CADDY_BACKEND_UPSTREAMS": config.backend_upstreams,
+        "ORCHEO_CADDY_CANVAS_UPSTREAM": config.canvas_upstream,
     }
     if config.auth_mode == "api-key" and config.api_key:
         updates["ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN"] = config.api_key
@@ -1018,6 +1311,9 @@ def run_setup(
     auth_mode: AuthMode | None,
     api_key: str | None,
     chatkit_domain_key: str | None,
+    public_ingress: bool | None,
+    public_host: str | None,
+    publish_debug_ports: bool | None,
     start_stack: bool | None,
     install_docker: bool | None,
     install_orcheo_skill: bool | None,
@@ -1036,30 +1332,40 @@ def run_setup(
         )
 
     resolved_mode = _resolve_mode(mode, yes=yes)
+    (
+        resolved_public_ingress_enabled,
+        resolved_public_host,
+        resolved_publish_debug_ports,
+    ) = _resolve_public_ingress_config(
+        public_ingress=public_ingress,
+        public_host=public_host,
+        publish_debug_ports=publish_debug_ports,
+        yes=yes,
+        env_file=stack_env_file,
+        env_exists=has_existing_stack_env,
+    )
+    default_backend_url = (
+        f"https://{resolved_public_host}"
+        if resolved_public_ingress_enabled and resolved_public_host is not None
+        else "http://localhost:8000"
+    )
     resolved_backend_url, preserve_existing_backend_url = _resolve_backend_url(
         backend_url,
         mode=resolved_mode,
         yes=yes,
         env_exists=has_existing_stack_env,
+        default_backend_url=default_backend_url,
     )
     resolved_auth_mode = _resolve_auth_mode(auth_mode, yes=yes)
-    resolved_start_stack = _resolve_bool(
-        start_stack,
-        yes_default=yes,
-        prompt="Start stack with docker compose after install?",
-        default=True,
-    )
-    resolved_install_docker = _resolve_bool(
-        install_docker,
-        yes_default=yes,
-        prompt="Install Docker when missing?",
-        default=True,
-    )
-    resolved_install_orcheo_skill = _resolve_bool(
-        install_orcheo_skill,
-        yes_default=yes,
-        prompt="Install Orcheo skill for AI coding agents (Claude, Codex)?",
-        default=True,
+    (
+        resolved_start_stack,
+        resolved_install_docker,
+        resolved_install_orcheo_skill,
+    ) = _resolve_setup_toggles(
+        start_stack=start_stack,
+        install_docker=install_docker,
+        install_orcheo_skill=install_orcheo_skill,
+        yes=yes,
     )
 
     resolved_api_key = _resolve_api_key(
@@ -1072,25 +1378,21 @@ def run_setup(
     resolved_chatkit_domain_key = _resolve_chatkit_domain_key(
         chatkit_domain_key, yes=yes
     )
-
-    if resolved_api_key and not manual_secrets and not yes:
-        console.print("[green]Generated API key locally.[/green]")
-    if resolved_auth_mode == "api-key" and resolved_api_key is None:
-        console.print(
-            "[cyan]Keeping existing API bootstrap token. "
-            "Pass --api-key to rotate it.[/cyan]"
-        )
-    if preserve_existing_backend_url:
-        console.print(
-            "[cyan]Keeping existing backend URL. "
-            "Pass --backend-url to update it.[/cyan]"
-        )
-    if resolved_auth_mode == "oauth":
-        console.print(
-            "[yellow]OAuth mode selected. Configure ORCHEO_AUTH_ISSUER, "
-            "ORCHEO_AUTH_AUDIENCE, ORCHEO_AUTH_JWKS_URL, and matching "
-            "VITE_ORCHEO_AUTH_* values in your stack .env.[/yellow]"
-        )
+    resolved_backend_upstreams, resolved_canvas_upstream = _resolve_stack_upstreams(
+        stack_env_file,
+        env_exists=has_existing_stack_env,
+    )
+    _print_setup_resolution_notes(
+        console=console,
+        resolved_api_key=resolved_api_key,
+        manual_secrets=manual_secrets,
+        yes=yes,
+        resolved_auth_mode=resolved_auth_mode,
+        preserve_existing_backend_url=preserve_existing_backend_url,
+        resolved_public_ingress_enabled=resolved_public_ingress_enabled,
+        resolved_public_host=resolved_public_host,
+        resolved_publish_debug_ports=resolved_publish_debug_ports,
+    )
 
     return SetupConfig(
         mode=resolved_mode,
@@ -1098,6 +1400,11 @@ def run_setup(
         auth_mode=resolved_auth_mode,
         api_key=resolved_api_key,
         chatkit_domain_key=resolved_chatkit_domain_key,
+        public_ingress_enabled=resolved_public_ingress_enabled,
+        public_host=resolved_public_host,
+        publish_debug_ports=resolved_publish_debug_ports,
+        backend_upstreams=resolved_backend_upstreams,
+        canvas_upstream=resolved_canvas_upstream,
         start_stack=resolved_start_stack,
         install_docker_if_missing=resolved_install_docker,
         install_orcheo_skill=resolved_install_orcheo_skill,
@@ -1149,41 +1456,46 @@ def _poll_backend_health(
     return False
 
 
-def execute_setup(
+def _compose_profile_args(stack_dir: Path) -> list[str]:
+    env_file = stack_dir / ".env"
+    if not env_file.exists():
+        return []
+    raw_profiles = _read_env_value(env_file, "COMPOSE_PROFILES")
+    if raw_profiles is None:
+        return []
+    profiles = [
+        profile.strip() for profile in raw_profiles.split(",") if profile.strip()
+    ]
+    args: list[str] = []
+    for profile in profiles:
+        args.extend(["--profile", profile])
+    return args
+
+
+def _prepare_stack_start(
     config: SetupConfig,
     *,
     console: Console,
-    stack_version: str | None = None,
-) -> None:
-    """Run setup/upgrade actions based on the selected options."""
-    stack_dir, env_file = _ensure_stack_assets(
-        config=config,
-        console=console,
-        stack_version=stack_version,
-    )
-    config.stack_project_dir = str(stack_dir)
-    config.stack_env_file = str(env_file)
-    _warn_chatkit_domain_key_missing(env_file=env_file, console=console)
+) -> tuple[bool, bool]:
     docker_installed_this_run = False
     use_privileged_docker = False
 
     if config.start_stack and not _has_binary("docker"):
-        if config.install_docker_if_missing:
-            if not _attempt_docker_autoinstall(console=console):
-                console.print(
-                    "[yellow]Docker is missing and automatic installation could "
-                    "not complete. Continuing without starting the stack. "
-                    "Install Docker (https://docs.docker.com/get-docker/) and "
-                    "rerun with --start-stack.[/yellow]"
-                )
-                config.start_stack = False
-            else:
-                docker_installed_this_run = True
-        else:
+        if not config.install_docker_if_missing:
             raise typer.BadParameter(
                 "Docker is required to start the stack, and you chose "
                 "--skip-docker-install. Install Docker and rerun setup."
             )
+        if not _attempt_docker_autoinstall(console=console):
+            console.print(
+                "[yellow]Docker is missing and automatic installation could "
+                "not complete. Continuing without starting the stack. "
+                "Install Docker (https://docs.docker.com/get-docker/) and "
+                "rerun with --start-stack.[/yellow]"
+            )
+            config.start_stack = False
+            return docker_installed_this_run, use_privileged_docker
+        docker_installed_this_run = True
 
     if config.start_stack and not _current_shell_has_docker_access():
         if docker_installed_this_run:
@@ -1200,38 +1512,79 @@ def execute_setup(
                 "--start-stack.[/yellow]"
             )
             config.start_stack = False
+    return docker_installed_this_run, use_privileged_docker
+
+
+def _compose_args(stack_dir: Path) -> list[str]:
+    docker_command = _docker_command()
+    if docker_command is None:
+        raise typer.BadParameter(
+            "Docker appears to be installed, but the docker CLI could not be "
+            "resolved in PATH."
+        )
+    return [
+        *docker_command,
+        "compose",
+        *_compose_profile_args(stack_dir),
+        "-f",
+        str(stack_dir / "docker-compose.yml"),
+        "--project-directory",
+        str(stack_dir),
+    ]
+
+
+def _report_stack_health(
+    config: SetupConfig,
+    *,
+    stack_dir: Path,
+    console: Console,
+) -> None:
+    healthcheck_url = _build_healthcheck_url(config)
+    if healthcheck_url is None:
+        console.print(
+            "[yellow]Skipped backend health polling because public ingress is "
+            "enabled without localhost debug ports. After DNS points "
+            f"{config.public_host} at this host and inbound 80/443 are open, "
+            f"verify https://{config.public_host} manually.[/yellow]"
+        )
+        return
+    if _poll_backend_health(healthcheck_url, console=console):
+        return
+    compose_file = stack_dir / "docker-compose.yml"
+    timeout_seconds = _read_health_poll_timeout_seconds()
+    console.print(
+        "[yellow]Backend did not become healthy within "
+        f"{timeout_seconds} seconds.\n"
+        "Check service logs with:[/yellow]\n"
+        f"  docker compose -f {compose_file} logs"
+    )
+
+
+def execute_setup(
+    config: SetupConfig,
+    *,
+    console: Console,
+    stack_version: str | None = None,
+) -> None:
+    """Run setup/upgrade actions based on the selected options."""
+    stack_dir, env_file = _ensure_stack_assets(
+        config=config,
+        console=console,
+        stack_version=stack_version,
+    )
+    config.stack_project_dir = str(stack_dir)
+    config.stack_env_file = str(env_file)
+    _warn_chatkit_domain_key_missing(env_file=env_file, console=console)
+    _, use_privileged_docker = _prepare_stack_start(config, console=console)
 
     if config.start_stack and _has_binary("docker"):
-        docker_command = _docker_command()
-        if docker_command is None:
-            raise typer.BadParameter(
-                "Docker appears to be installed, but the docker CLI could not be "
-                "resolved in PATH."
-            )
-        compose_args = [
-            *docker_command,
-            "compose",
-            "-f",
-            str(stack_dir / "docker-compose.yml"),
-            "--project-directory",
-            str(stack_dir),
-        ]
+        compose_args = _compose_args(stack_dir)
         command_runner = (
             _run_privileged_command if use_privileged_docker else _run_command
         )
-
         command_runner([*compose_args, "pull"], console=console)
         command_runner([*compose_args, "up", "-d"], console=console)
-
-        if not _poll_backend_health(config.backend_url, console=console):
-            compose_file = stack_dir / "docker-compose.yml"
-            timeout_seconds = _read_health_poll_timeout_seconds()
-            console.print(
-                "[yellow]Backend did not become healthy within "
-                f"{timeout_seconds} seconds.\n"
-                "Check service logs with:[/yellow]\n"
-                f"  docker compose -f {compose_file} logs"
-            )
+        _report_stack_health(config, stack_dir=stack_dir, console=console)
 
     if config.install_orcheo_skill:  # pragma: no branch
         _install_orcheo_skill(console=console)
@@ -1268,6 +1621,10 @@ def print_summary(config: SetupConfig, *, console: Console) -> None:
         "mode": config.mode,
         "backend_url": config.backend_url,
         "auth_mode": config.auth_mode,
+        "public_ingress_enabled": config.public_ingress_enabled,
+        "public_host": config.public_host,
+        "publish_debug_ports": config.publish_debug_ports,
+        "backend_upstreams": config.backend_upstreams,
         "stack_assets_synced": True,
         "stack_started": config.start_stack,
         "stack_project_dir": config.stack_project_dir,
@@ -1282,6 +1639,16 @@ def print_summary(config: SetupConfig, *, console: Console) -> None:
         console.print(
             "\n[yellow]Note:[/yellow] Canvas may take 2-3 minutes on first "
             "startup while npm installs dependencies."
+        )
+    if config.public_ingress_enabled and config.public_host is not None:
+        console.print(
+            "\n[yellow]Public ingress prerequisites:[/yellow] "
+            f"point DNS for {config.public_host} at this host and allow inbound "
+            "80/443 to the Caddy container."
+        )
+        console.print(
+            "[yellow]Scope:[/yellow] Use bundled Caddy for reachable self-hosted "
+            "hosts. Keep Cloudflare Tunnel for localhost or NAT-restricted setups."
         )
 
     console.print("\nNext steps:")
