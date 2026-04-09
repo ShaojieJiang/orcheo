@@ -471,6 +471,128 @@ def test_build_env_updates_hides_debug_ports_in_local_only_mode(monkeypatch):
     assert updates["COMPOSE_PROFILES"] == ""
 
 
+def test_setup_resolution_helpers_cover_env_branches(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "\n".join(
+            [
+                "ORCHEO_PUBLIC_INGRESS_ENABLED=true",
+                "ORCHEO_PUBLIC_HOST=Orcheo.Example.com",
+                "ORCHEO_PUBLISH_DEBUG_PORTS=off",
+                "ORCHEO_CADDY_BACKEND_UPSTREAMS=backend:9000",
+                "ORCHEO_CADDY_CANVAS_UPSTREAM=canvas:6000",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    assert (
+        setup._resolve_public_ingress_enabled(
+            None, yes=False, env_file=env_file, env_exists=True
+        )
+        is True
+    )
+    assert (
+        setup._resolve_public_host(
+            None,
+            public_ingress_enabled=True,
+            yes=False,
+            env_file=env_file,
+            env_exists=True,
+        )
+        == "orcheo.example.com"
+    )
+    assert (
+        setup._resolve_publish_debug_ports(
+            None,
+            public_ingress_enabled=True,
+            yes=False,
+            env_file=env_file,
+            env_exists=True,
+        )
+        is False
+    )
+    assert setup._resolve_stack_upstreams(env_file, env_exists=True) == (
+        "backend:9000",
+        "canvas:6000",
+    )
+    assert setup._parse_bool_value(" yes ") is True
+    assert setup._parse_bool_value("off") is False
+    assert setup._parse_bool_value("maybe") is None
+    assert setup._parse_bool_value(None) is None
+
+    monkeypatch.setattr(
+        setup.typer, "prompt", lambda *args, **kwargs: "Prompted.Example.com"
+    )
+    assert (
+        setup._resolve_public_host(
+            None,
+            public_ingress_enabled=True,
+            yes=False,
+            env_file=tmp_path / "missing.env",
+            env_exists=False,
+        )
+        == "prompted.example.com"
+    )
+
+    empty_host_env = tmp_path / "empty-host.env"
+    empty_host_env.write_text("ORCHEO_PUBLIC_HOST=\n", encoding="utf-8")
+    assert (
+        setup._resolve_public_host(
+            None,
+            public_ingress_enabled=True,
+            yes=False,
+            env_file=empty_host_env,
+            env_exists=True,
+        )
+        == "prompted.example.com"
+    )
+
+    monkeypatch.setattr(setup.typer, "confirm", lambda *args, **kwargs: False)
+    assert (
+        setup._resolve_publish_debug_ports(
+            None,
+            public_ingress_enabled=True,
+            yes=False,
+            env_file=tmp_path / "missing.env",
+            env_exists=False,
+        )
+        is False
+    )
+    assert (
+        setup._resolve_publish_debug_ports(
+            None,
+            public_ingress_enabled=True,
+            yes=True,
+            env_file=tmp_path / "missing.env",
+            env_exists=False,
+        )
+        is True
+    )
+
+
+@pytest.mark.parametrize(
+    ("value", "message"),
+    [
+        ("", "Public hostname is required."),
+        ("https://example.com", "hostname only"),
+        ("example.com/path", "must not contain paths"),
+        ("bad_host", "letters, numbers, dots, and hyphens"),
+    ],
+)
+def test_normalize_public_host_validation(value: str, message: str) -> None:
+    with pytest.raises(setup.typer.BadParameter, match=message):
+        setup._normalize_public_host(value)
+
+
+def test_compose_profile_args_missing_env_file(tmp_path: Path) -> None:
+    stack_dir = tmp_path / "stack"
+    stack_dir.mkdir()
+    assert setup._compose_profile_args(stack_dir) == []
+
+
 def test_read_env_value_and_warn(tmp_path):
     env_file = tmp_path / ".env"
     env_file.write_text("ORCHEO_API_URL=http://\nVITE_ORCHEO_CHATKIT_DOMAIN_KEY=\n")
@@ -759,6 +881,26 @@ def test_install_orcheo_skill(monkeypatch):
     console = make_console()
     setup._install_orcheo_skill(console=console)
     assert "alpha" in console.file.getvalue()
+
+
+def test_print_setup_resolution_notes_public_ingress_debug_disabled() -> None:
+    console = make_console()
+
+    setup._print_setup_resolution_notes(
+        console=console,
+        resolved_api_key=None,
+        manual_secrets=True,
+        yes=True,
+        resolved_auth_mode="oauth",
+        preserve_existing_backend_url=False,
+        resolved_public_ingress_enabled=True,
+        resolved_public_host="orcheo.example.com",
+        resolved_publish_debug_ports=False,
+    )
+
+    output = console.file.getvalue()
+    assert "Bundled public ingress enabled for orcheo.example.com" in output
+    assert "Local backend/canvas debug ports will stay disabled" in output
 
 
 def test_print_summary():

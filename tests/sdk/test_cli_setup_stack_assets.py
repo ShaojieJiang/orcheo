@@ -1464,6 +1464,42 @@ def test_run_setup_public_ingress_requires_hostname_with_yes(
         )
 
 
+def test_setup_public_ingress_helpers_and_summary(
+    tmp_path: Path,
+) -> None:
+    from orcheo_sdk.cli import setup as setup_mod
+
+    config = _setup_config()
+    config.public_ingress_enabled = True
+    config.public_host = "orcheo.example.com"
+    config.publish_debug_ports = False
+    config.start_stack = False
+    config.backend_url = "https://orcheo.example.com"
+
+    assert setup_mod._build_cors_origins(config) == "https://orcheo.example.com"
+    assert setup_mod._build_healthcheck_url(config) is None
+
+    healthcheck_config = _setup_config()
+    healthcheck_config.public_ingress_enabled = True
+    healthcheck_config.public_host = "orcheo.example.com"
+    healthcheck_config.publish_debug_ports = True
+    assert (
+        setup_mod._build_healthcheck_url(healthcheck_config) == "http://localhost:8000"
+    )
+
+    console = Console(record=True)
+    setup_mod._report_stack_health(config, stack_dir=tmp_path, console=console)
+    assert "Skipped backend health polling" in console.export_text()
+
+    config.stack_project_dir = str(tmp_path / "stack")
+    config.stack_env_file = str(tmp_path / "stack/.env")
+    summary_console = Console(record=True)
+    setup_mod.print_summary(config, console=summary_console)
+    summary_text = summary_console.export_text()
+    assert "Public ingress prerequisites" in summary_text
+    assert "Scope:" in summary_text
+
+
 def test_setup_read_health_timeout_invalid_negative_and_print_summary(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

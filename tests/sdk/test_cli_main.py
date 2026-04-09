@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import io
+from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
 import click
@@ -217,6 +218,11 @@ def test_version_callback_package_not_found(
     assert "orcheo unknown" in captured.out
 
 
+def test_env_bool_falsey(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ORCHEO_TEST_BOOL", "0")
+    assert main_mod._env_bool("ORCHEO_TEST_BOOL") is False
+
+
 def test_print_cli_error_machine_with_status_code(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -281,6 +287,24 @@ def test_run_usage_error_machine_mode_without_context(
     data = json.loads(captured.out)
     assert data["error"] == "No ctx."
     assert "help" not in data
+
+
+def test_run_cli_error_machine_mode(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def mock_app(*args: object, **kwargs: object) -> None:
+        raise CLIError("Machine failure")
+
+    monkeypatch.setattr(main_mod, "app", mock_app)
+    monkeypatch.setattr(main_mod.sys, "argv", ["orcheo"])
+    monkeypatch.delenv("ORCHEO_HUMAN", raising=False)
+
+    with pytest.raises(SystemExit) as exc_info:
+        run()
+    assert exc_info.value.code == 1
+
+    captured = capsys.readouterr()
+    assert "Machine failure" in captured.out
 
 
 def test_run_disables_rich_markup_in_machine_mode(
@@ -517,6 +541,11 @@ def test_resolve_install_console_default() -> None:
     assert isinstance(result, Console)
 
 
+def test_resolve_stack_project_dir_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ORCHEO_STACK_DIR", raising=False)
+    assert main_mod._resolve_stack_project_dir() == Path.home() / ".orcheo" / "stack"
+
+
 def test_stack_compose_base_args(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -531,6 +560,54 @@ def test_stack_compose_base_args(
     compose_file.write_text("version: '3'")
     result = main_mod._stack_compose_base_args()
     assert str(compose_file) in result
+
+
+def test_compose_profile_args(
+    tmp_path: Path,
+) -> None:
+    stack_dir = tmp_path / "stack"
+    stack_dir.mkdir()
+
+    assert main_mod._compose_profile_args(stack_dir) == []
+
+    env_file = stack_dir / ".env"
+    env_file.write_text(
+        "\n".join(
+            [
+                "# comment",
+                "OTHER=value",
+                "COMPOSE_PROFILES= public-ingress , 'debug-ports', \"extra\" ",
+                "IGNORED=after",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    assert main_mod._compose_profile_args(stack_dir) == [
+        "--profile",
+        "public-ingress",
+        "--profile",
+        "debug-ports",
+        "--profile",
+        "extra",
+    ]
+
+    empty_profiles_dir = tmp_path / "stack-empty"
+    empty_profiles_dir.mkdir()
+    (empty_profiles_dir / ".env").write_text("OTHER=value\n", encoding="utf-8")
+    assert main_mod._compose_profile_args(empty_profiles_dir) == []
+
+    blank_profiles_dir = tmp_path / "stack-blank"
+    blank_profiles_dir.mkdir()
+    (blank_profiles_dir / ".env").write_text(
+        "COMPOSE_PROFILES=public-ingress, ,debug-ports\n", encoding="utf-8"
+    )
+    assert main_mod._compose_profile_args(blank_profiles_dir) == [
+        "--profile",
+        "public-ingress",
+        "--profile",
+        "debug-ports",
+    ]
 
 
 def test_run_stack_command_success_and_failure(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -548,6 +625,13 @@ def test_run_stack_command_success_and_failure(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(main_mod.subprocess, "run", failing_run)
     with pytest.raises(typer.BadParameter):
         main_mod._run_stack_command(["docker"], console=console)
+
+    monkeypatch.setattr(main_mod.subprocess, "run", fake_run)
+    main_mod._run_stack_command(
+        ["docker", "compose"],
+        console=console,
+        expected_exit_codes={0, 1},
+    )
 
 
 def test_install_command_skips_subcommands(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -630,3 +714,55 @@ def test_print_cli_error_machine_plain(capsys: pytest.CaptureFixture[str]) -> No
     main_mod._print_cli_error_machine(CLIError("boom"))
     captured = capsys.readouterr()
     assert "boom" in captured.out
+
+
+def test_main_skips_update_check_when_disabled(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    ctx = typer.Context(click.Command("orcheo"))
+    settings = SimpleNamespace(
+        profile="default",
+        api_url="http://localhost:8000",
+        service_token="token",
+        chatkit_public_base_url="http://localhost:5173",
+    )
+    cache_calls: list[tuple[Path, timedelta]] = []
+    client_calls: list[dict[str, object]] = []
+    update_calls: list[dict[str, object]] = []
+
+    monkeypatch.setattr(main_mod, "resolve_settings", lambda **kwargs: settings)
+    monkeypatch.setattr(main_mod, "get_cache_dir", lambda: tmp_path / "cache")
+
+    class DummyCache:
+        def __init__(self, *, directory: Path, ttl: timedelta) -> None:
+            cache_calls.append((directory, ttl))
+
+    class DummyClient:
+        def __init__(self, **kwargs: object) -> None:
+            client_calls.append(kwargs)
+
+    monkeypatch.setattr(main_mod, "CacheManager", DummyCache)
+    monkeypatch.setattr(main_mod, "ApiClient", DummyClient)
+    monkeypatch.setattr(
+        main_mod,
+        "maybe_print_update_notice",
+        lambda **kwargs: update_calls.append(kwargs),
+    )
+    monkeypatch.setattr(main_mod, "_is_completion_mode", lambda: False)
+
+    main_mod.main(
+        ctx,
+        profile=None,
+        version=False,
+        api_url=None,
+        service_token=None,
+        offline=False,
+        cache_ttl_hours=24,
+        human=False,
+        no_update_check=True,
+    )
+
+    assert cache_calls
+    assert client_calls
+    assert update_calls == []
+    assert isinstance(ctx.obj, CLIState)
