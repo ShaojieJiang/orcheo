@@ -47,7 +47,8 @@ class FormatDigestNode(TaskNode):
         if not text:
             return "No Title"
         decoded = html.unescape(text).replace("\xa0", " ")
-        return decoded.replace("<", "[").replace(">", "]")
+        sanitized = decoded.replace("<", "[").replace(">", "]").replace("|", " - ")
+        return " ".join(sanitized.split())
 
     @staticmethod
     def read_items(state: State) -> list[dict[str, Any]]:
@@ -87,7 +88,10 @@ class FormatDigestNode(TaskNode):
         for item in items:
             title = self.decode_title(item.get("title"))
             url = item.get("link", "")
-            lines.append(f"- <{url}|{title}>")
+            if isinstance(url, str) and url:
+                lines.append(f"- <{url}|{title}>")
+            else:
+                lines.append(f"- {title}")
 
         remaining = max(total_unread - len(items), 0)
         body = "\n".join(lines)
@@ -156,6 +160,8 @@ async def build_graph() -> StateGraph:
                 "channel_id": "{{config.configurable.channel_id}}",
                 "text": "{{format_digest.news}}",
                 "mrkdwn": True,
+                "unfurl_links": False,
+                "unfurl_media": False,
             },
         ),
     )

@@ -3,15 +3,10 @@
 import hashlib
 import hmac
 import json
-import os
-import sys
 import time
 from collections.abc import Mapping
-from dataclasses import asdict
-from pathlib import Path
-from typing import Any, Literal, TextIO
-from fastmcp import Client
-from fastmcp.client.transports import NpxStdioTransport
+from typing import Any, Literal
+import httpx
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field, field_validator
 from orcheo.graph.state import State
@@ -19,27 +14,7 @@ from orcheo.nodes.base import TaskNode
 from orcheo.nodes.registry import NodeMetadata, registry
 
 
-_DEFAULT_STDIO_LOG_PATH = Path("/tmp/orcheo-mcp-stdio.log")
-_STDIO_STREAM_TARGETS: dict[str, str] = {
-    "/dev/stderr": "stderr",
-    "/proc/self/fd/2": "stderr",
-    "/dev/stdout": "stdout",
-    "/proc/self/fd/1": "stdout",
-}
-
-
-def _resolve_stdio_log_target(log_path: str | None) -> Path | TextIO:
-    """Map configured stdio log destinations to a writable transport target."""
-    if log_path is None:
-        return _DEFAULT_STDIO_LOG_PATH
-
-    normalized = log_path.strip()
-    if not normalized:
-        return _DEFAULT_STDIO_LOG_PATH
-    stream_name = _STDIO_STREAM_TARGETS.get(normalized)
-    if stream_name is not None:
-        return getattr(sys, stream_name)
-    return Path(normalized)
+_SLACK_API_BASE_URL = "https://slack.com/api"
 
 
 @registry.register(
@@ -70,7 +45,7 @@ class SlackNode(TaskNode):
         "slack_get_users",
         "slack_get_user_profile",
     ]
-    """The name of the tool supported by the MCP server."""
+    """The name of the supported Slack action."""
     kwargs: dict = {}
     """The keyword arguments to pass to the tool."""
     bot_token: str = "[[slack_bot_token]]"
@@ -80,26 +55,227 @@ class SlackNode(TaskNode):
     channel_ids: str | None = None
     """Optional comma separated list of channel IDs."""
 
+    def _serialize_response(self, response_payload: dict[str, Any]) -> dict[str, Any]:
+        """Return a node result compatible with the old MCP response shape."""
+        is_error = not bool(response_payload.get("ok"))
+        return {
+            "content": [{"type": "text", "text": json.dumps(response_payload)}],
+            "is_error": is_error,
+            "error": response_payload.get("error") if is_error else None,
+        }
+
+    def _error_result(self, message: str) -> dict[str, Any]:
+        """Return a normalized error payload."""
+        return {
+            "content": [],
+            "is_error": True,
+            "error": message,
+        }
+
+    def _headers(self) -> dict[str, str]:
+        """Return Slack Web API request headers."""
+        return {
+            "Authorization": f"Bearer {self.bot_token}",
+            "Content-Type": "application/json; charset=utf-8",
+        }
+
+    def _coerce_limit(self, raw_value: Any, default: int) -> int:
+        """Return a bounded integer limit for Slack list endpoints."""
+        if raw_value is None:
+            return default
+        try:
+            return min(int(raw_value), 200)
+        except (TypeError, ValueError):
+            return default
+
+    def _normalize_channel_payload(self) -> dict[str, Any]:
+        """Map generic kwargs into Slack Web API field names."""
+        payload = dict(self.kwargs)
+        channel = payload.pop("channel_id", None) or payload.get("channel")
+        if isinstance(channel, str) and channel:
+            payload["channel"] = channel
+        return payload
+
+    async def _get_json(
+        self, endpoint: str, params: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """Issue a GET request to Slack Web API and return parsed JSON."""
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                f"{_SLACK_API_BASE_URL}/{endpoint}",
+                headers=self._headers(),
+                params=params,
+            )
+            response.raise_for_status()
+        return response.json()
+
+    async def _post_json(
+        self, endpoint: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Issue a POST request to Slack Web API and return parsed JSON."""
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(
+                f"{_SLACK_API_BASE_URL}/{endpoint}",
+                headers=self._headers(),
+                json=payload,
+            )
+            response.raise_for_status()
+        return response.json()
+
+    async def _post_message(self) -> dict[str, Any]:
+        """Send a message or thread reply via Slack Web API."""
+        payload = self._normalize_channel_payload()
+        channel = payload.get("channel")
+        text = payload.get("text")
+        if not isinstance(channel, str) or not channel:
+            return self._error_result("Missing required argument: channel_id")
+        if not isinstance(text, str) or not text:
+            return self._error_result("Missing required argument: text")
+        if self.tool_name == "slack_reply_to_thread":
+            thread_ts = payload.get("thread_ts")
+            if not isinstance(thread_ts, str) or not thread_ts:
+                return self._error_result("Missing required argument: thread_ts")
+        try:
+            response_payload = await self._post_json("chat.postMessage", payload)
+        except httpx.HTTPError as exc:
+            return self._error_result(str(exc))
+        return self._serialize_response(response_payload)
+
+    async def _list_channels(self) -> dict[str, Any]:
+        """List accessible Slack channels."""
+        try:
+            if self.channel_ids:
+                channels = []
+                for channel_id in self.channel_ids.split(","):
+                    normalized_channel_id = channel_id.strip()
+                    if not normalized_channel_id:
+                        continue
+                    response_payload = await self._get_json(
+                        "conversations.info",
+                        {"channel": normalized_channel_id},
+                    )
+                    if not bool(response_payload.get("ok")):
+                        return self._serialize_response(response_payload)
+                    channel = response_payload.get("channel")
+                    if isinstance(channel, dict) and not channel.get("is_archived"):
+                        channels.append(channel)
+                return self._serialize_response(
+                    {
+                        "ok": True,
+                        "channels": channels,
+                        "response_metadata": {"next_cursor": ""},
+                    }
+                )
+
+            params = {
+                "types": "public_channel",
+                "exclude_archived": "true",
+                "limit": str(self._coerce_limit(self.kwargs.get("limit"), 100)),
+                "team_id": self.team_id,
+            }
+            cursor = self.kwargs.get("cursor")
+            if isinstance(cursor, str) and cursor:
+                params["cursor"] = cursor
+            response_payload = await self._get_json("conversations.list", params)
+        except httpx.HTTPError as exc:
+            return self._error_result(str(exc))
+        return self._serialize_response(response_payload)
+
+    async def _add_reaction(self) -> dict[str, Any]:
+        """Add a reaction to a Slack message."""
+        payload = self._normalize_channel_payload()
+        timestamp = payload.get("timestamp")
+        reaction = payload.pop("reaction", None)
+        if not isinstance(payload.get("channel"), str) or not payload["channel"]:
+            return self._error_result("Missing required argument: channel_id")
+        if not isinstance(timestamp, str) or not timestamp:
+            return self._error_result("Missing required argument: timestamp")
+        if not isinstance(reaction, str) or not reaction:
+            return self._error_result("Missing required argument: reaction")
+        payload["timestamp"] = timestamp
+        payload["name"] = reaction
+        try:
+            response_payload = await self._post_json("reactions.add", payload)
+        except httpx.HTTPError as exc:
+            return self._error_result(str(exc))
+        return self._serialize_response(response_payload)
+
+    async def _get_channel_history(self) -> dict[str, Any]:
+        """Fetch recent messages from a Slack channel."""
+        payload = self._normalize_channel_payload()
+        channel = payload.get("channel")
+        if not isinstance(channel, str) or not channel:
+            return self._error_result("Missing required argument: channel_id")
+        params = {
+            "channel": channel,
+            "limit": str(self._coerce_limit(self.kwargs.get("limit"), 10)),
+        }
+        try:
+            response_payload = await self._get_json("conversations.history", params)
+        except httpx.HTTPError as exc:
+            return self._error_result(str(exc))
+        return self._serialize_response(response_payload)
+
+    async def _get_thread_replies(self) -> dict[str, Any]:
+        """Fetch all replies for a Slack thread."""
+        payload = self._normalize_channel_payload()
+        channel = payload.get("channel")
+        thread_ts = payload.get("thread_ts")
+        if not isinstance(channel, str) or not channel:
+            return self._error_result("Missing required argument: channel_id")
+        if not isinstance(thread_ts, str) or not thread_ts:
+            return self._error_result("Missing required argument: thread_ts")
+        try:
+            response_payload = await self._get_json(
+                "conversations.replies",
+                {"channel": channel, "ts": thread_ts},
+            )
+        except httpx.HTTPError as exc:
+            return self._error_result(str(exc))
+        return self._serialize_response(response_payload)
+
+    async def _get_users(self) -> dict[str, Any]:
+        """List Slack workspace users."""
+        params = {
+            "limit": str(self._coerce_limit(self.kwargs.get("limit"), 100)),
+            "team_id": self.team_id,
+        }
+        cursor = self.kwargs.get("cursor")
+        if isinstance(cursor, str) and cursor:
+            params["cursor"] = cursor
+        try:
+            response_payload = await self._get_json("users.list", params)
+        except httpx.HTTPError as exc:
+            return self._error_result(str(exc))
+        return self._serialize_response(response_payload)
+
+    async def _get_user_profile(self) -> dict[str, Any]:
+        """Fetch one Slack user profile."""
+        user_id = self.kwargs.get("user_id")
+        if not isinstance(user_id, str) or not user_id:
+            return self._error_result("Missing required argument: user_id")
+        try:
+            response_payload = await self._get_json(
+                "users.profile.get",
+                {"user": user_id, "include_labels": "true"},
+            )
+        except httpx.HTTPError as exc:
+            return self._error_result(str(exc))
+        return self._serialize_response(response_payload)
+
     async def run(self, state: State, config: RunnableConfig) -> dict:
         """Run the Slack node."""
-        env_vars = {
-            "SLACK_BOT_TOKEN": self.bot_token,
-            "SLACK_TEAM_ID": self.team_id,
+        tool_handlers = {
+            "slack_list_channels": self._list_channels,
+            "slack_post_message": self._post_message,
+            "slack_reply_to_thread": self._post_message,
+            "slack_add_reaction": self._add_reaction,
+            "slack_get_channel_history": self._get_channel_history,
+            "slack_get_thread_replies": self._get_thread_replies,
+            "slack_get_users": self._get_users,
+            "slack_get_user_profile": self._get_user_profile,
         }
-        if self.channel_ids:
-            env_vars["SLACK_CHANNEL_IDS"] = self.channel_ids
-        transport = NpxStdioTransport(
-            "@modelcontextprotocol/server-slack",
-            env_vars=env_vars,
-        )
-        if getattr(transport, "log_file", None) is None:
-            transport.log_file = _resolve_stdio_log_target(
-                os.getenv("ORCHEO_MCP_STDIO_LOG")
-            )
-        async with Client(transport) as client:
-            result = await client.call_tool(self.tool_name, self.kwargs)
-
-            return asdict(result)
+        return await tool_handlers[self.tool_name]()
 
 
 @registry.register(
