@@ -25,6 +25,16 @@ class DummyTransport:
     pass
 
 
+class LoggingProxy:
+    """Worker-style proxy stream without fileno support."""
+
+    def write(self, message: str) -> int:
+        return len(message)
+
+    def flush(self) -> None:
+        return None
+
+
 @pytest.fixture
 def slack_node():
     return SlackNode(
@@ -325,8 +335,70 @@ async def test_slack_node_resolves_stream_device_against_current_sys_streams(
 ):
     monkeypatch.setenv("ORCHEO_MCP_STDIO_LOG", "/dev/stderr")
 
-    replacement_stderr = io.StringIO()
+    replacement_stderr = open(Path(__file__))
     monkeypatch.setattr(sys, "stderr", replacement_stderr)
+
+    mock_result = MockToolResult(content=[{"text": "Logged"}], is_error=False)
+
+    mock_client = AsyncMock()
+    mock_client.call_tool = AsyncMock(return_value=mock_result)
+
+    mock_context_manager = AsyncMock()
+    mock_context_manager.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_context_manager.__aexit__ = AsyncMock(return_value=None)
+
+    transport = DummyTransport()
+
+    try:
+        with patch("orcheo.nodes.slack.NpxStdioTransport", return_value=transport):
+            with patch("orcheo.nodes.slack.Client", return_value=mock_context_manager):
+                await slack_node.run({}, None)
+    finally:
+        replacement_stderr.close()
+
+    assert transport.log_file is replacement_stderr
+
+
+@pytest.mark.asyncio
+async def test_slack_node_falls_back_to_original_stream_when_proxy_lacks_fileno(
+    monkeypatch, slack_node
+):
+    monkeypatch.setenv("ORCHEO_MCP_STDIO_LOG", "/dev/stderr")
+
+    replacement_stderr = LoggingProxy()
+    original_stderr = open(Path(__file__))
+    monkeypatch.setattr(sys, "stderr", replacement_stderr)
+    monkeypatch.setattr(sys, "__stderr__", original_stderr)
+
+    mock_result = MockToolResult(content=[{"text": "Logged"}], is_error=False)
+
+    mock_client = AsyncMock()
+    mock_client.call_tool = AsyncMock(return_value=mock_result)
+
+    mock_context_manager = AsyncMock()
+    mock_context_manager.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_context_manager.__aexit__ = AsyncMock(return_value=None)
+
+    transport = DummyTransport()
+
+    try:
+        with patch("orcheo.nodes.slack.NpxStdioTransport", return_value=transport):
+            with patch("orcheo.nodes.slack.Client", return_value=mock_context_manager):
+                await slack_node.run({}, None)
+    finally:
+        original_stderr.close()
+
+    assert transport.log_file is original_stderr
+
+
+@pytest.mark.asyncio
+async def test_slack_node_falls_back_to_default_path_when_no_stream_has_fileno(
+    monkeypatch, slack_node
+):
+    monkeypatch.setenv("ORCHEO_MCP_STDIO_LOG", "/dev/stderr")
+
+    monkeypatch.setattr(sys, "stderr", LoggingProxy())
+    monkeypatch.setattr(sys, "__stderr__", io.StringIO())
 
     mock_result = MockToolResult(content=[{"text": "Logged"}], is_error=False)
 
@@ -343,4 +415,4 @@ async def test_slack_node_resolves_stream_device_against_current_sys_streams(
         with patch("orcheo.nodes.slack.Client", return_value=mock_context_manager):
             await slack_node.run({}, None)
 
-    assert transport.log_file is replacement_stderr
+    assert transport.log_file == _DEFAULT_STDIO_LOG_PATH

@@ -156,6 +156,8 @@ async def build_graph() -> StateGraph:
                 "channel_id": "{{config.configurable.channel_id}}",
                 "text": "{{format_digest.news}}",
                 "mrkdwn": True,
+                "unfurl_links": False,
+                "unfurl_media": False,
             },
         ),
     )

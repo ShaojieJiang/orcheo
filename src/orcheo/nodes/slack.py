@@ -2,6 +2,7 @@
 
 import hashlib
 import hmac
+import io
 import json
 import os
 import sys
@@ -9,7 +10,7 @@ import time
 from collections.abc import Mapping
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any, Literal, TextIO
+from typing import Any, Literal, TextIO, cast
 from fastmcp import Client
 from fastmcp.client.transports import NpxStdioTransport
 from langchain_core.runnables import RunnableConfig
@@ -38,8 +39,26 @@ def _resolve_stdio_log_target(log_path: str | None) -> Path | TextIO:
         return _DEFAULT_STDIO_LOG_PATH
     stream_name = _STDIO_STREAM_TARGETS.get(normalized)
     if stream_name is not None:
-        return getattr(sys, stream_name)
+        active_stream = getattr(sys, stream_name, None)
+        if _stream_supports_fileno(active_stream):
+            return cast(TextIO, active_stream)
+        original_stream = getattr(sys, f"__{stream_name}__", None)
+        if _stream_supports_fileno(original_stream):
+            return cast(TextIO, original_stream)
+        return _DEFAULT_STDIO_LOG_PATH
     return Path(normalized)
+
+
+def _stream_supports_fileno(stream: object) -> bool:
+    """Return whether a stream can be passed to subprocess stderr/stdout."""
+    fileno = getattr(stream, "fileno", None)
+    if not callable(fileno):
+        return False
+    try:
+        fileno()
+    except (AttributeError, io.UnsupportedOperation, OSError, ValueError):
+        return False
+    return True
 
 
 @registry.register(
