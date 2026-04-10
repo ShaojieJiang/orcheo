@@ -25,7 +25,7 @@ services read configuration via Dynaconf with the `ORCHEO_` prefix.
 | `ORCHEO_CHATKIT_WIDGET_ACTION_TYPES` | `["submit"]` | Comma/JSON list of action types | Widget action types the ChatKit server will dispatch back to workflows (`chatkit/server.py`). |
 | `ORCHEO_HOST` | `0.0.0.0` | Hostname or IP string | Network interface to bind the FastAPI app (`config/loader.py`). |
 | `ORCHEO_PORT` | `8000` | Integer (1‑65535) | TCP port exposed by the FastAPI service (`config/loader.py`). |
-| `ORCHEO_CORS_ALLOW_ORIGINS` | `["http://localhost:5173","http://127.0.0.1:5173"]` | JSON array or comma-separated list of origins | CORS allow-list used when constructing the FastAPI middleware (`factory.py`). `orcheo install --public-ingress` sets this to the public HTTPS origin and keeps localhost origins when debug ports remain enabled. |
+| `ORCHEO_CORS_ALLOW_ORIGINS` | `["http://localhost:5173","http://127.0.0.1:5173"]` | JSON array or comma-separated list of origins | CORS allow-list used when constructing the FastAPI middleware (`factory.py`). `orcheo install --public-ingress` sets this to the shared public HTTPS origin and keeps localhost origins when debug ports remain enabled. Tunnel or split-origin installs should set this to the public Canvas/browser origin instead of the backend API origin. |
 | `ORCHEO_UPDATE_CHECK_TIMEOUT_SECONDS` | `3.0` | Float > 0 | Timeout for backend package registry lookups used by `/api/system/info` (`app/versioning.py`). |
 | `ORCHEO_UPDATE_CHECK_RETRIES` | `1` | Integer ≥ 0 | Retry count for backend package registry lookups used by `/api/system/info` (`app/versioning.py`). |
 | `ORCHEO_CANVAS_VERSION` | _none_ | Version string (for example `0.8.1`) | Optional current Canvas version reported by `/api/system/info` to compare with npm latest (`app/versioning.py`). |
@@ -58,7 +58,7 @@ Note: `ORCHEO_REPOSITORY_BACKEND=inmemory` stores runs in-process only and does 
 | `VITE_ORCHEO_AUTH_PROVIDER_GITHUB` | _none_ | String | Provider hint value for GitHub when `VITE_ORCHEO_AUTH_PROVIDER_PARAM` is set. |
 | `VITE_ORCHEO_CHATKIT_DOMAIN_KEY` | _none_ | String | ChatKit domain key used by Canvas public chat surfaces. Setup prompts for this value; if left unset/placeholder, ChatKit UI features remain disabled until configured. |
 | `VITE_ORCHEO_CHATKIT_DEFAULT_DOMAIN_KEY` | `domain_pk_localhost_dev` | String | Dev-only fallback domain key used when neither `VITE_ORCHEO_CHATKIT_DOMAIN_KEY` nor runtime `window.__ORCHEO_CONFIG__.chatkitDomainKey` is provided (`features/chatkit/lib/chatkit-client.ts`). |
-| `VITE_ALLOWED_HOSTS` | `localhost,127.0.0.1` | Comma-separated hostnames | Hostnames the Canvas server will accept requests for (maps to `server.allowedHosts` in `vite.config.ts`). Public-ingress installs append the configured public hostname. |
+| `VITE_ALLOWED_HOSTS` | `localhost,127.0.0.1` | Comma-separated hostnames | Hostnames the Canvas server will accept requests for (maps to `server.allowedHosts` in `vite.config.ts`). Public-ingress installs append the configured public hostname. Tunnel or custom split-origin installs should include the public Canvas hostname here. |
 
 ## Vault configuration
 
@@ -150,7 +150,7 @@ Note: `ORCHEO_REPOSITORY_BACKEND=inmemory` stores runs in-process only and does 
 | `ORCHEO_CONFIG_DIR` | `~/.config/orcheo` | Directory path | Overrides where the CLI looks for `cli.toml` (`cli/config.py`). |
 | `ORCHEO_CACHE_DIR` | `~/.cache/orcheo` | Directory path | Location for CLI caches (`cli/config.py`). |
 | `ORCHEO_PROFILE` | `default` | Profile name present in `cli.toml` | Chooses which CLI profile to load (`cli/config.py`). |
-| `ORCHEO_API_URL` | `http://localhost:8000` | HTTP(S) URL | URL of the Orcheo backend used by the CLI/SDK (`cli/config.py`). |
+| `ORCHEO_API_URL` | `http://localhost:8000` | HTTP(S) URL | URL of the Orcheo backend used by the CLI/SDK (`cli/config.py`). For Cloudflare Tunnel or other public split-origin setups, set this to the public backend hostname rather than the Canvas hostname. |
 | `ORCHEO_SERVICE_TOKEN` | _none_ | Bearer token string | Service authentication token used by the CLI/SDK and emitted in generated code snippets (`cli/config.py`, `services/codegen.py`). |
 | `ORCHEO_HUMAN` | _unset_ | Boolean (`1/0`, `true/false`, `yes/no`, `on/off`) | When set to a truthy value, the CLI uses human-friendly Rich output (colored tables, panels) instead of machine-readable format (JSON, Markdown tables). Equivalent to passing `--human` (`cli/main.py`). |
 | `ORCHEO_DISABLE_UPDATE_CHECK` | _unset_ | Boolean (`1/0`, `true/false`, `yes/no`, `on/off`) | Disables startup update reminders in the CLI (`cli/main.py`). |

@@ -69,6 +69,12 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/api/system/health > /dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
     command: >
       python -m uvicorn orcheo_backend.app:app
       --host 0.0.0.0
@@ -80,7 +86,8 @@ services:
     profiles:
       - debug-ports
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     ports:
       - "127.0.0.1:${ORCHEO_BACKEND_DEBUG_PORT:-8000}:8000"
     command:
@@ -188,7 +195,7 @@ services:
     depends_on:
       - backend
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:5173/ || exit 1"]
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:5173/ || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -199,7 +206,8 @@ services:
     profiles:
       - debug-ports
     depends_on:
-      - canvas
+      canvas:
+        condition: service_healthy
     ports:
       - "127.0.0.1:${ORCHEO_CANVAS_DEBUG_PORT:-5173}:5173"
     command:
@@ -216,8 +224,10 @@ services:
       - public-ingress
     env_file: .env
     depends_on:
-      - backend
-      - canvas
+      backend:
+        condition: service_healthy
+      canvas:
+        condition: service_healthy
     ports:
       - "${ORCHEO_CADDY_HTTP_BIND:-0.0.0.0}:80:80"
       - "${ORCHEO_CADDY_HTTPS_BIND:-0.0.0.0}:443:443"

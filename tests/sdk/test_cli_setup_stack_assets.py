@@ -476,6 +476,38 @@ def test_execute_setup_preserves_backend_urls_on_upgrade_by_default(
     assert config.backend_url == "http://existing-api.test"
 
 
+def test_execute_setup_preserves_existing_tunnel_browser_origin_settings(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Upgrade should not clobber split-origin tunnel settings with localhost defaults."""  # noqa: E501
+    stack_dir = tmp_path / "stack"
+    stack_dir.mkdir(parents=True)
+    (stack_dir / ".env").write_text(
+        "ORCHEO_CHATKIT_PUBLIC_BASE_URL=https://orcheo-canvas.example.com\n"
+        "ORCHEO_CORS_ALLOW_ORIGINS=https://orcheo-canvas.example.com\n"
+        "VITE_ALLOWED_HOSTS=localhost,127.0.0.1,orcheo-canvas.example.com\n",
+        encoding="utf-8",
+    )
+    _patch_common(monkeypatch, stack_dir=stack_dir, has_docker=False)
+
+    config = _setup_config()
+    config.mode = "upgrade"
+    config.start_stack = False
+    execute_setup(config, console=Console(record=True))
+
+    env_content = (stack_dir / ".env").read_text(encoding="utf-8")
+    assert (
+        "ORCHEO_CHATKIT_PUBLIC_BASE_URL=https://orcheo-canvas.example.com"
+        in env_content
+    )
+    assert "ORCHEO_CORS_ALLOW_ORIGINS=https://orcheo-canvas.example.com" in env_content
+    assert (
+        "VITE_ALLOWED_HOSTS=localhost,127.0.0.1,orcheo-canvas.example.com"
+        in env_content
+    )
+
+
 def test_execute_setup_preserves_backend_urls_on_install_when_requested(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
