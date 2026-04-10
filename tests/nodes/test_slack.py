@@ -272,6 +272,30 @@ async def test_slack_node_respects_stdio_log_env(monkeypatch, slack_node):
 
 
 @pytest.mark.asyncio
+async def test_slack_node_uses_default_log_path_for_blank_stdio_log_env(
+    monkeypatch, slack_node
+):
+    monkeypatch.setenv("ORCHEO_MCP_STDIO_LOG", "   ")
+
+    mock_result = MockToolResult(content=[{"text": "Logged"}], is_error=False)
+
+    mock_client = AsyncMock()
+    mock_client.call_tool = AsyncMock(return_value=mock_result)
+
+    mock_context_manager = AsyncMock()
+    mock_context_manager.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_context_manager.__aexit__ = AsyncMock(return_value=None)
+
+    transport = DummyTransport()
+
+    with patch("orcheo.nodes.slack.NpxStdioTransport", return_value=transport):
+        with patch("orcheo.nodes.slack.Client", return_value=mock_context_manager):
+            await slack_node.run({}, None)
+
+    assert transport.log_file == _DEFAULT_STDIO_LOG_PATH
+
+
+@pytest.mark.asyncio
 async def test_slack_node_uses_stderr_stream_for_special_log_device(
     monkeypatch, slack_node
 ):

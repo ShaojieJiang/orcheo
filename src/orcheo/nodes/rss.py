@@ -7,10 +7,19 @@ from typing import Any
 from xml.etree import ElementTree
 import httpx
 from langchain_core.runnables import RunnableConfig
-from pydantic import Field
+from pydantic import Field, field_validator
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
 from orcheo.nodes.registry import NodeMetadata, registry
+
+
+RSS_REQUEST_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (compatible; OrcheoRSS/1.0; +https://orcheo.ai)",
+    "Accept": (
+        "application/rss+xml, application/atom+xml, application/xml, "
+        "text/xml;q=0.9, */*;q=0.8"
+    ),
+}
 
 
 @registry.register(
@@ -28,12 +37,20 @@ class RSSNode(TaskNode):
     without aborting the remaining feeds.
     """
 
-    sources: list[str] | str = Field(description="RSS/Atom feed URLs to fetch")
+    sources: list[str] = Field(description="RSS/Atom feed URLs to fetch")
     timeout: float = Field(
         default=15.0,
-        ge=0.0,
+        gt=0.0,
         description="HTTP timeout in seconds per feed",
     )
+
+    @field_validator("sources", mode="before")
+    @classmethod
+    def _normalize_sources(cls, value: list[str] | str) -> list[str]:
+        """Normalize a single feed URL into a list of sources."""
+        if isinstance(value, str):
+            return [value]
+        return value
 
     # ------------------------------------------------------------------
     # XML helpers
@@ -187,7 +204,10 @@ class RSSNode(TaskNode):
         documents: list[dict[str, Any]] = []
         errors: list[dict[str, str]] = []
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(
+            follow_redirects=True,
+            headers=RSS_REQUEST_HEADERS,
+        ) as client:
             for url in self.sources:
                 docs, error = await self._fetch_source(client, url, now_iso)
                 documents.extend(docs)
