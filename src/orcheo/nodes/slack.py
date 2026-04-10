@@ -20,11 +20,11 @@ from orcheo.nodes.registry import NodeMetadata, registry
 
 
 _DEFAULT_STDIO_LOG_PATH = Path("/tmp/orcheo-mcp-stdio.log")
-_STDIO_STREAM_TARGETS: dict[str, TextIO] = {
-    "/dev/stderr": sys.stderr,
-    "/proc/self/fd/2": sys.stderr,
-    "/dev/stdout": sys.stdout,
-    "/proc/self/fd/1": sys.stdout,
+_STDIO_STREAM_TARGETS: dict[str, str] = {
+    "/dev/stderr": "stderr",
+    "/proc/self/fd/2": "stderr",
+    "/dev/stdout": "stdout",
+    "/proc/self/fd/1": "stdout",
 }
 
 
@@ -36,8 +36,9 @@ def _resolve_stdio_log_target(log_path: str | None) -> Path | TextIO:
     normalized = log_path.strip()
     if not normalized:
         return _DEFAULT_STDIO_LOG_PATH
-    if normalized in _STDIO_STREAM_TARGETS:
-        return _STDIO_STREAM_TARGETS[normalized]
+    stream_name = _STDIO_STREAM_TARGETS.get(normalized)
+    if stream_name is not None:
+        return getattr(sys, stream_name)
     return Path(normalized)
 
 

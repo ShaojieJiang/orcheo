@@ -1,5 +1,6 @@
 """Tests for Slack node."""
 
+import io
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -292,3 +293,30 @@ async def test_slack_node_uses_stderr_stream_for_special_log_device(
             await slack_node.run({}, None)
 
     assert transport.log_file is sys.stderr
+
+
+@pytest.mark.asyncio
+async def test_slack_node_resolves_stream_device_against_current_sys_streams(
+    monkeypatch, slack_node
+):
+    monkeypatch.setenv("ORCHEO_MCP_STDIO_LOG", "/dev/stderr")
+
+    replacement_stderr = io.StringIO()
+    monkeypatch.setattr(sys, "stderr", replacement_stderr)
+
+    mock_result = MockToolResult(content=[{"text": "Logged"}], is_error=False)
+
+    mock_client = AsyncMock()
+    mock_client.call_tool = AsyncMock(return_value=mock_result)
+
+    mock_context_manager = AsyncMock()
+    mock_context_manager.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_context_manager.__aexit__ = AsyncMock(return_value=None)
+
+    transport = DummyTransport()
+
+    with patch("orcheo.nodes.slack.NpxStdioTransport", return_value=transport):
+        with patch("orcheo.nodes.slack.Client", return_value=mock_context_manager):
+            await slack_node.run({}, None)
+
+    assert transport.log_file is replacement_stderr
