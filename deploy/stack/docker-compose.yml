@@ -6,7 +6,7 @@ services:
   postgres:
     image: postgres:16-alpine
     ports:
-      - "127.0.0.1:${ORCHEO_POSTGRES_DEBUG_PORT:-5432}:5432"
+      - "127.0.0.1:${ORCHEO_POSTGRES_LOCAL_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     environment:
@@ -22,7 +22,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "127.0.0.1:${ORCHEO_REDIS_DEBUG_PORT:-6379}:6379"
+      - "127.0.0.1:${ORCHEO_REDIS_LOCAL_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
     command: redis-server --appendonly yes --appendfsync everysec
@@ -81,15 +81,15 @@ services:
       --port 8000
       --proxy-headers
 
-  backend-debug:
+  backend-local:
     image: caddy:2
     profiles:
-      - debug-ports
+      - local-access
     depends_on:
       backend:
         condition: service_healthy
     ports:
-      - "127.0.0.1:${ORCHEO_BACKEND_DEBUG_PORT:-8000}:8000"
+      - "127.0.0.1:${ORCHEO_BACKEND_LOCAL_PORT:-8000}:8000"
     command:
       - caddy
       - reverse-proxy
@@ -195,21 +195,21 @@ services:
     depends_on:
       - backend
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:5173/ || exit 1"]
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:5173/ || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 10s
 
-  canvas-debug:
+  canvas-local:
     image: caddy:2
     profiles:
-      - debug-ports
+      - local-access
     depends_on:
       canvas:
         condition: service_healthy
     ports:
-      - "127.0.0.1:${ORCHEO_CANVAS_DEBUG_PORT:-5173}:5173"
+      - "127.0.0.1:${ORCHEO_CANVAS_LOCAL_PORT:-5173}:5173"
     command:
       - caddy
       - reverse-proxy

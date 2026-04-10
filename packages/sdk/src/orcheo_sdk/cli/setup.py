@@ -66,7 +66,7 @@ class SetupConfig:
     chatkit_domain_key: str | None
     public_ingress_enabled: bool
     public_host: str | None
-    publish_debug_ports: bool
+    publish_local_ports: bool
     backend_upstreams: str
     canvas_upstream: str
     start_stack: bool
@@ -644,19 +644,19 @@ def _resolve_public_host(
     return _normalize_public_host(typer.prompt("Public hostname"))
 
 
-def _resolve_publish_debug_ports(
-    publish_debug_ports: bool | None,
+def _resolve_publish_local_ports(
+    publish_local_ports: bool | None,
     *,
     public_ingress_enabled: bool,
     yes: bool,
     env_file: Path,
     env_exists: bool,
 ) -> bool:
-    if publish_debug_ports is not None:
-        return publish_debug_ports
+    if publish_local_ports is not None:
+        return publish_local_ports
     if env_exists:
         existing = _parse_bool_value(
-            _read_env_value(env_file, "ORCHEO_PUBLISH_DEBUG_PORTS")
+            _read_env_value(env_file, "ORCHEO_PUBLISH_LOCAL_PORTS")
         )
         if existing is not None:
             return existing
@@ -665,7 +665,7 @@ def _resolve_publish_debug_ports(
     if yes:
         return True
     return typer.confirm(
-        "Keep localhost debug ports for backend and Canvas published?",
+        "Keep localhost backend and Canvas ports published?",
         default=True,
     )
 
@@ -674,7 +674,7 @@ def _resolve_public_ingress_config(
     *,
     public_ingress: bool | None,
     public_host: str | None,
-    publish_debug_ports: bool | None,
+    publish_local_ports: bool | None,
     yes: bool,
     env_file: Path,
     env_exists: bool,
@@ -692,8 +692,8 @@ def _resolve_public_ingress_config(
         env_file=env_file,
         env_exists=env_exists,
     )
-    resolved_publish_debug_ports = _resolve_publish_debug_ports(
-        publish_debug_ports,
+    resolved_publish_local_ports = _resolve_publish_local_ports(
+        publish_local_ports,
         public_ingress_enabled=resolved_public_ingress_enabled,
         yes=yes,
         env_file=env_file,
@@ -702,7 +702,7 @@ def _resolve_public_ingress_config(
     return (
         resolved_public_ingress_enabled,
         resolved_public_host,
-        resolved_publish_debug_ports,
+        resolved_publish_local_ports,
     )
 
 
@@ -764,7 +764,7 @@ def _print_setup_resolution_notes(
     preserve_existing_backend_url: bool,
     resolved_public_ingress_enabled: bool,
     resolved_public_host: str | None,
-    resolved_publish_debug_ports: bool,
+    resolved_publish_local_ports: bool,
 ) -> None:
     if resolved_api_key and not manual_secrets and not yes:
         console.print("[green]Generated API key locally.[/green]")
@@ -784,9 +784,9 @@ def _print_setup_resolution_notes(
             f"{resolved_public_host}. Caddy expects DNS for that hostname and "
             "inbound 80/443 to reach this host.[/cyan]"
         )
-        if not resolved_publish_debug_ports:
+        if not resolved_publish_local_ports:
             console.print(
-                "[cyan]Local backend/canvas debug ports will stay disabled; "
+                "[cyan]Local backend/canvas ports will stay disabled; "
                 "access should go through the public hostname only.[/cyan]"
             )
     if resolved_auth_mode == "oauth":
@@ -1093,8 +1093,8 @@ def _compose_profiles(config: SetupConfig) -> str:
     profiles: list[str] = []
     if config.public_ingress_enabled:
         profiles.append("public-ingress")
-    if config.publish_debug_ports:
-        profiles.append("debug-ports")
+    if config.publish_local_ports:
+        profiles.append("local-access")
     return ",".join(profiles)
 
 
@@ -1102,7 +1102,7 @@ def _build_cors_origins(config: SetupConfig) -> str:
     origins: list[str] = []
     if config.public_ingress_enabled and config.public_host is not None:
         origins.append(f"https://{config.public_host}")
-    if not config.public_ingress_enabled or config.publish_debug_ports:
+    if not config.public_ingress_enabled or config.publish_local_ports:
         origins.extend(
             [
                 "http://localhost:5173",
@@ -1128,7 +1128,7 @@ def _build_chatkit_public_base_url(config: SetupConfig) -> str:
 
 def _build_healthcheck_url(config: SetupConfig) -> str | None:
     if config.public_ingress_enabled:
-        if config.publish_debug_ports:
+        if config.publish_local_ports:
             return "http://localhost:8000"
         return None
     return config.backend_url
@@ -1152,7 +1152,7 @@ def _build_env_updates(
         "VITE_ALLOWED_HOSTS": _build_allowed_hosts(config),
         "ORCHEO_PUBLIC_INGRESS_ENABLED": str(config.public_ingress_enabled).lower(),
         "ORCHEO_PUBLIC_HOST": config.public_host or "",
-        "ORCHEO_PUBLISH_DEBUG_PORTS": str(config.publish_debug_ports).lower(),
+        "ORCHEO_PUBLISH_LOCAL_PORTS": str(config.publish_local_ports).lower(),
         "COMPOSE_PROFILES": _compose_profiles(config),
         "ORCHEO_CADDY_SITE_ADDRESS": config.public_host or "",
         "ORCHEO_CADDY_BACKEND_UPSTREAMS": config.backend_upstreams,
@@ -1337,7 +1337,7 @@ def run_setup(
     chatkit_domain_key: str | None,
     public_ingress: bool | None,
     public_host: str | None,
-    publish_debug_ports: bool | None,
+    publish_local_ports: bool | None,
     start_stack: bool | None,
     install_docker: bool | None,
     install_orcheo_skill: bool | None,
@@ -1359,11 +1359,11 @@ def run_setup(
     (
         resolved_public_ingress_enabled,
         resolved_public_host,
-        resolved_publish_debug_ports,
+        resolved_publish_local_ports,
     ) = _resolve_public_ingress_config(
         public_ingress=public_ingress,
         public_host=public_host,
-        publish_debug_ports=publish_debug_ports,
+        publish_local_ports=publish_local_ports,
         yes=yes,
         env_file=stack_env_file,
         env_exists=has_existing_stack_env,
@@ -1422,7 +1422,7 @@ def run_setup(
         preserve_existing_backend_url=preserve_existing_backend_url,
         resolved_public_ingress_enabled=resolved_public_ingress_enabled,
         resolved_public_host=resolved_public_host,
-        resolved_publish_debug_ports=resolved_publish_debug_ports,
+        resolved_publish_local_ports=resolved_publish_local_ports,
     )
 
     return SetupConfig(
@@ -1433,7 +1433,7 @@ def run_setup(
         chatkit_domain_key=resolved_chatkit_domain_key,
         public_ingress_enabled=resolved_public_ingress_enabled,
         public_host=resolved_public_host,
-        publish_debug_ports=resolved_publish_debug_ports,
+        publish_local_ports=resolved_publish_local_ports,
         backend_upstreams=resolved_backend_upstreams,
         canvas_upstream=resolved_canvas_upstream,
         start_stack=resolved_start_stack,
@@ -1574,7 +1574,7 @@ def _report_stack_health(
     if healthcheck_url is None:
         console.print(
             "[yellow]Skipped backend health polling because public ingress is "
-            "enabled without localhost debug ports. After DNS points "
+            "enabled without localhost access ports. After DNS points "
             f"{config.public_host} at this host and inbound 80/443 are open, "
             f"verify https://{config.public_host} manually.[/yellow]"
         )
@@ -1654,7 +1654,7 @@ def print_summary(config: SetupConfig, *, console: Console) -> None:
         "auth_mode": config.auth_mode,
         "public_ingress_enabled": config.public_ingress_enabled,
         "public_host": config.public_host,
-        "publish_debug_ports": config.publish_debug_ports,
+        "publish_local_ports": config.publish_local_ports,
         "backend_upstreams": config.backend_upstreams,
         "stack_assets_synced": True,
         "stack_started": config.start_stack,

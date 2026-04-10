@@ -4,11 +4,12 @@ import hashlib
 import hmac
 import json
 import os
+import sys
 import time
 from collections.abc import Mapping
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, TextIO
 from fastmcp import Client
 from fastmcp.client.transports import NpxStdioTransport
 from langchain_core.runnables import RunnableConfig
@@ -16,6 +17,29 @@ from pydantic import BaseModel, Field, field_validator
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
 from orcheo.nodes.registry import NodeMetadata, registry
+
+
+_DEFAULT_STDIO_LOG_PATH = Path("/tmp/orcheo-mcp-stdio.log")
+_STDIO_STREAM_TARGETS: dict[str, str] = {
+    "/dev/stderr": "stderr",
+    "/proc/self/fd/2": "stderr",
+    "/dev/stdout": "stdout",
+    "/proc/self/fd/1": "stdout",
+}
+
+
+def _resolve_stdio_log_target(log_path: str | None) -> Path | TextIO:
+    """Map configured stdio log destinations to a writable transport target."""
+    if log_path is None:
+        return _DEFAULT_STDIO_LOG_PATH
+
+    normalized = log_path.strip()
+    if not normalized:
+        return _DEFAULT_STDIO_LOG_PATH
+    stream_name = _STDIO_STREAM_TARGETS.get(normalized)
+    if stream_name is not None:
+        return getattr(sys, stream_name)
+    return Path(normalized)
 
 
 @registry.register(
@@ -69,8 +93,9 @@ class SlackNode(TaskNode):
             env_vars=env_vars,
         )
         if getattr(transport, "log_file", None) is None:
-            log_path = os.getenv("ORCHEO_MCP_STDIO_LOG", "/tmp/orcheo-mcp-stdio.log")
-            transport.log_file = Path(log_path)
+            transport.log_file = _resolve_stdio_log_target(
+                os.getenv("ORCHEO_MCP_STDIO_LOG")
+            )
         async with Client(transport) as client:
             result = await client.call_tool(self.tool_name, self.kwargs)
 
