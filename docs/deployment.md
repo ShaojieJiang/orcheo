@@ -113,6 +113,40 @@ Bundled Caddy is appropriate for standard self-hosted installs and moderate scal
 - WAF, bot management, or DDoS shielding
 - platform-native ingress on Kubernetes or managed container platforms
 
+## Cloudflare Tunnel Or Similar Split-Origin Tunnel
+
+Use this recipe when the host is not directly reachable or when you intentionally keep Canvas and backend on separate public hostnames behind a tunnel. In this topology, bundled Caddy stays off and the stack continues to publish the localhost debug proxies that `cloudflared` forwards to.
+
+1. **Install the stack without bundled public ingress**
+   ```bash
+   orcheo install --start-stack
+   ```
+2. **Point your tunnel routes at the local debug proxies**
+   - `https://orcheo.example.com` -> `http://localhost:8000`
+   - `https://orcheo-canvas.example.com` -> `http://localhost:5173`
+3. **Set the generated stack env to the split-origin contract**
+   ```env
+   ORCHEO_PUBLIC_INGRESS_ENABLED=false
+   COMPOSE_PROFILES=debug-ports
+   ORCHEO_API_URL=https://orcheo.example.com
+   VITE_ORCHEO_BACKEND_URL=https://orcheo.example.com
+   ORCHEO_CORS_ALLOW_ORIGINS=https://orcheo-canvas.example.com
+   ORCHEO_CHATKIT_PUBLIC_BASE_URL=https://orcheo-canvas.example.com
+   VITE_ALLOWED_HOSTS=localhost,127.0.0.1,orcheo-canvas.example.com
+   ```
+4. **Restart the stack after editing `~/.orcheo/stack/.env`**
+   ```bash
+   orcheo stack --stop
+   orcheo stack --start
+   ```
+5. **Verify the public origins**
+   ```bash
+   curl -I https://orcheo-canvas.example.com/
+   curl https://orcheo.example.com/api/system/info
+   ```
+
+The important distinction is that backend-facing values use the backend hostname, while browser-origin values use the Canvas hostname. If these are collapsed back to `localhost` values, browsers will fail preflight requests and the backend will log `OPTIONS ... 400`.
+
 ## Managed Hosting (PostgreSQL, async pool)
 
 This deployment targets platforms such as Fly.io, Railway, or Kubernetes where Postgres is available as a managed service.
@@ -175,6 +209,6 @@ kubectl apply -k deploy/kubernetes
 - **Scaling**: The FastAPI app is stateless. Scale horizontally by adding replicas while pointing them at the same checkpoint database. With bundled Caddy, keep replica pools limited to one logical deployment that shares Postgres and Redis.
 - **Backups**: Schedule database backups (pg_dump or managed snapshots) to protect workflow history and run states.
 
-Use Cloudflare Tunnel only when the host is not directly reachable from the internet. For reachable hosts with direct inbound ports, bundled Caddy is the simpler default.
+Use Cloudflare Tunnel when the host is not directly reachable from the internet, or when you intentionally want tunnel-managed public hostnames in front of the localhost debug proxies. For reachable hosts with direct inbound ports and one shared origin, bundled Caddy is the simpler default.
 
 These recipes will evolve as additional milestones introduce credential vaulting, trigger services, and observability pipelines.

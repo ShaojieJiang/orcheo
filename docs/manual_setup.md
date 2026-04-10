@@ -94,6 +94,24 @@ For local development without OAuth, set `ORCHEO_AUTH_MODE=optional` in your `.e
 
 Keep Cloudflare Tunnel or a similar tunnel product for cases where the Orcheo host is not directly reachable from the internet, especially localhost development, callback testing from laptops, and NAT-restricted environments. Bundled Caddy expects direct inbound `80/443` access instead.
 
+When using Cloudflare Tunnel with separate browser and API hostnames, keep bundled public ingress disabled and preserve the debug-port profile:
+
+```env
+ORCHEO_PUBLIC_INGRESS_ENABLED=false
+COMPOSE_PROFILES=debug-ports
+ORCHEO_API_URL=https://orcheo.example.com
+VITE_ORCHEO_BACKEND_URL=https://orcheo.example.com
+ORCHEO_CORS_ALLOW_ORIGINS=https://orcheo-canvas.example.com
+ORCHEO_CHATKIT_PUBLIC_BASE_URL=https://orcheo-canvas.example.com
+VITE_ALLOWED_HOSTS=localhost,127.0.0.1,orcheo-canvas.example.com
+```
+
+Use one hostname for backend requests and websocket traffic, and the Canvas hostname as the browser origin:
+- `https://orcheo.example.com` -> backend API and `/ws/*`
+- `https://orcheo-canvas.example.com` -> Canvas UI
+
+If you previously ran `orcheo install` after the Caddy ingress rollout and your tunnel deployment started returning `OPTIONS ... 400`, check these values first. The common failure mode is that tunnel-specific origins were reset to localhost defaults in `~/.orcheo/stack/.env`.
+
 ## Installation (Manual)
 
 The project ships with everything needed to spin up the FastAPI runtime on SQLite for local development.

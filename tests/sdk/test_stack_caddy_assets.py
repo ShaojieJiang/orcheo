@@ -21,6 +21,24 @@ def test_stack_compose_defines_public_ingress_and_debug_profiles() -> None:
 
     assert "ports" not in services["backend"]
     assert "ports" not in services["canvas"]
+    assert services["backend"]["healthcheck"]["test"] == [
+        "CMD-SHELL",
+        "curl -fsS http://localhost:8000/api/system/health > /dev/null",
+    ]
+    assert (
+        services["backend"]["depends_on"]["postgres"]["condition"] == "service_healthy"
+    )
+    assert services["backend"]["depends_on"]["redis"]["condition"] == "service_healthy"
+    assert (
+        services["backend-debug"]["depends_on"]["backend"]["condition"]
+        == "service_healthy"
+    )
+    assert (
+        services["canvas-debug"]["depends_on"]["canvas"]["condition"]
+        == "service_healthy"
+    )
+    assert services["caddy"]["depends_on"]["backend"]["condition"] == "service_healthy"
+    assert services["caddy"]["depends_on"]["canvas"]["condition"] == "service_healthy"
     assert services["backend-debug"]["profiles"] == ["debug-ports"]
     assert services["canvas-debug"]["profiles"] == ["debug-ports"]
     assert services["caddy"]["profiles"] == ["public-ingress"]

@@ -1246,6 +1246,31 @@ def _upsert_env_values(
     console.print(f"[green]Updated stack env file at {env_file}[/green]")
 
 
+def _preserve_existing_stack_browser_urls(
+    *,
+    env_file: Path,
+    updates: dict[str, str],
+    config: SetupConfig,
+) -> None:
+    if config.preserve_existing_backend_url:
+        preserved_orcheo_api_url = _read_env_value(env_file, "ORCHEO_API_URL")
+        if preserved_orcheo_api_url is not None:
+            updates.pop("ORCHEO_API_URL", None)
+            config.backend_url = preserved_orcheo_api_url
+
+        if _read_env_value(env_file, "VITE_ORCHEO_BACKEND_URL") is not None:
+            updates.pop("VITE_ORCHEO_BACKEND_URL", None)
+
+    if not config.public_ingress_enabled:
+        for key in (
+            "ORCHEO_CHATKIT_PUBLIC_BASE_URL",
+            "ORCHEO_CORS_ALLOW_ORIGINS",
+            "VITE_ALLOWED_HOSTS",
+        ):
+            if _read_env_value(env_file, key) is not None:
+                updates.pop(key, None)
+
+
 def _ensure_stack_assets(
     *,
     config: SetupConfig,
@@ -1280,14 +1305,12 @@ def _ensure_stack_assets(
         config,
         requested_stack_version=requested_stack_version,
     )
-    if config.preserve_existing_backend_url and not env_created:
-        preserved_orcheo_api_url = _read_env_value(env_file, "ORCHEO_API_URL")
-        if preserved_orcheo_api_url is not None:
-            updates.pop("ORCHEO_API_URL", None)
-            config.backend_url = preserved_orcheo_api_url
-
-        if _read_env_value(env_file, "VITE_ORCHEO_BACKEND_URL") is not None:
-            updates.pop("VITE_ORCHEO_BACKEND_URL", None)
+    if not env_created:
+        _preserve_existing_stack_browser_urls(
+            env_file=env_file,
+            updates=updates,
+            config=config,
+        )
 
     if env_created:
         # Fresh install: overwrite template placeholders with generated secrets.
