@@ -1,11 +1,12 @@
 """Tests for Slack node."""
 
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
-from orcheo.nodes.slack import SlackNode
+from orcheo.nodes.slack import _DEFAULT_STDIO_LOG_PATH, SlackNode
 
 
 @dataclass
@@ -243,7 +244,7 @@ async def test_slack_node_sets_log_file_when_missing(slack_node):
             mock_transport_class.assert_called_once()
             mock_client_class.assert_called_once_with(transport)
 
-    assert transport.log_file == Path("/tmp/orcheo-mcp-stdio.log")
+    assert transport.log_file == _DEFAULT_STDIO_LOG_PATH
 
 
 @pytest.mark.asyncio
@@ -267,3 +268,27 @@ async def test_slack_node_respects_stdio_log_env(monkeypatch, slack_node):
             await slack_node.run({}, None)
 
     assert transport.log_file == Path(custom_path)
+
+
+@pytest.mark.asyncio
+async def test_slack_node_uses_stderr_stream_for_special_log_device(
+    monkeypatch, slack_node
+):
+    monkeypatch.setenv("ORCHEO_MCP_STDIO_LOG", "/dev/stderr")
+
+    mock_result = MockToolResult(content=[{"text": "Logged"}], is_error=False)
+
+    mock_client = AsyncMock()
+    mock_client.call_tool = AsyncMock(return_value=mock_result)
+
+    mock_context_manager = AsyncMock()
+    mock_context_manager.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_context_manager.__aexit__ = AsyncMock(return_value=None)
+
+    transport = DummyTransport()
+
+    with patch("orcheo.nodes.slack.NpxStdioTransport", return_value=transport):
+        with patch("orcheo.nodes.slack.Client", return_value=mock_context_manager):
+            await slack_node.run({}, None)
+
+    assert transport.log_file is sys.stderr
