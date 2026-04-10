@@ -5,7 +5,7 @@ from xml.etree import ElementTree
 import httpx
 import pytest
 from langchain_core.runnables import RunnableConfig
-from orcheo.nodes.rss import RSSNode
+from orcheo.nodes.rss import RSS_REQUEST_HEADERS, RSSNode
 
 
 @pytest.mark.asyncio
@@ -202,6 +202,32 @@ async def test_rss_node_run_non_2xx_response_is_reported_as_error():
     assert result["errors"][0]["source"] == "https://example.com/protected.xml"
     mock_client.get.assert_called_once_with(
         "https://example.com/protected.xml", timeout=15.0
+    )
+
+
+@pytest.mark.asyncio
+async def test_rss_node_configures_http_client_for_redirects_and_feed_headers():
+    """RSS client should follow redirects and advertise feed-friendly headers."""
+    sources = ["https://example.com/feed.xml"]
+    node = RSSNode(name="test_rss", sources=sources)
+    state = {}
+    config = RunnableConfig()
+
+    mock_resp = Mock()
+    mock_resp.text = "<rss><channel></channel></rss>"
+
+    mock_client = AsyncMock()
+    mock_client.get.return_value = mock_resp
+
+    with patch("orcheo.nodes.rss.httpx.AsyncClient") as mock_cls:
+        mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        await node.run(state, config)
+
+    mock_cls.assert_called_once_with(
+        follow_redirects=True,
+        headers=RSS_REQUEST_HEADERS,
     )
 
 

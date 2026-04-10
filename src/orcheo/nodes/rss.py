@@ -13,6 +13,15 @@ from orcheo.nodes.base import TaskNode
 from orcheo.nodes.registry import NodeMetadata, registry
 
 
+RSS_REQUEST_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (compatible; OrcheoRSS/1.0; +https://orcheo.ai)",
+    "Accept": (
+        "application/rss+xml, application/atom+xml, application/xml, "
+        "text/xml;q=0.9, */*;q=0.8"
+    ),
+}
+
+
 @registry.register(
     NodeMetadata(
         name="RSSNode",
@@ -187,7 +196,10 @@ class RSSNode(TaskNode):
         documents: list[dict[str, Any]] = []
         errors: list[dict[str, str]] = []
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(
+            follow_redirects=True,
+            headers=RSS_REQUEST_HEADERS,
+        ) as client:
             for url in self.sources:
                 docs, error = await self._fetch_source(client, url, now_iso)
                 documents.extend(docs)
