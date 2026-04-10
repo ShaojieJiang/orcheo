@@ -7,7 +7,7 @@ from typing import Any
 from xml.etree import ElementTree
 import httpx
 from langchain_core.runnables import RunnableConfig
-from pydantic import Field
+from pydantic import Field, field_validator
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
 from orcheo.nodes.registry import NodeMetadata, registry
@@ -37,12 +37,20 @@ class RSSNode(TaskNode):
     without aborting the remaining feeds.
     """
 
-    sources: list[str] | str = Field(description="RSS/Atom feed URLs to fetch")
+    sources: list[str] = Field(description="RSS/Atom feed URLs to fetch")
     timeout: float = Field(
         default=15.0,
-        ge=0.0,
+        gt=0.0,
         description="HTTP timeout in seconds per feed",
     )
+
+    @field_validator("sources", mode="before")
+    @classmethod
+    def _normalize_sources(cls, value: list[str] | str) -> list[str]:
+        """Normalize a single feed URL into a list of sources."""
+        if isinstance(value, str):
+            return [value]
+        return value
 
     # ------------------------------------------------------------------
     # XML helpers

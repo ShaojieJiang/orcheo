@@ -5,6 +5,7 @@ from xml.etree import ElementTree
 import httpx
 import pytest
 from langchain_core.runnables import RunnableConfig
+from pydantic import ValidationError
 from orcheo.nodes.rss import RSS_REQUEST_HEADERS, RSSNode
 
 
@@ -51,6 +52,36 @@ async def test_rss_node_run():
     assert mock_client.get.call_count == 2
     mock_client.get.assert_any_call("https://example.com/feed1.xml", timeout=15.0)
     mock_client.get.assert_any_call("https://example.com/feed2.xml", timeout=15.0)
+
+
+@pytest.mark.asyncio
+async def test_rss_node_normalizes_single_source_string() -> None:
+    """Single source strings should be normalized into a one-item list."""
+    node = RSSNode(name="test_rss", sources="https://example.com/feed.xml")
+
+    mock_resp = Mock()
+    mock_resp.text = "<rss><channel></channel></rss>"
+
+    mock_client = AsyncMock()
+    mock_client.get.return_value = mock_resp
+
+    with patch("orcheo.nodes.rss.httpx.AsyncClient") as mock_cls:
+        mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        result = await node.run({}, RunnableConfig())
+
+    assert node.sources == ["https://example.com/feed.xml"]
+    assert result["failed_sources"] == 0
+    mock_client.get.assert_called_once_with(
+        "https://example.com/feed.xml", timeout=15.0
+    )
+
+
+def test_rss_node_rejects_non_positive_timeout() -> None:
+    """Timeouts must be strictly positive."""
+    with pytest.raises(ValidationError, match="greater than 0"):
+        RSSNode(name="test_rss", sources=["https://example.com/feed.xml"], timeout=0.0)
 
 
 @pytest.mark.asyncio
