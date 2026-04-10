@@ -1,418 +1,301 @@
 """Tests for Slack node."""
 
-import io
-import sys
-from dataclasses import dataclass
-from pathlib import Path
+import json
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
+import httpx
 import pytest
-from orcheo.nodes.slack import _DEFAULT_STDIO_LOG_PATH, SlackNode
+from orcheo.nodes.slack import SlackNode
 
 
-@dataclass
-class MockToolResult:
-    """Mock dataclass for tool call results."""
+class FakeResponse:
+    """Minimal HTTP response double for Slack API tests."""
 
-    content: list[dict[str, Any]]
-    is_error: bool
-    error: str | None = None
+    def __init__(self, payload: dict[str, Any]) -> None:
+        self._payload = payload
 
-
-class DummyTransport:
-    """Transport stub without an initial log_file attribute."""
-
-    pass
-
-
-class LoggingProxy:
-    """Worker-style proxy stream without fileno support."""
-
-    def write(self, message: str) -> int:
-        return len(message)
-
-    def flush(self) -> None:
+    def raise_for_status(self) -> None:
+        """Pretend the HTTP request succeeded."""
         return None
+
+    def json(self) -> dict[str, Any]:
+        """Return the mocked Slack JSON payload."""
+        return self._payload
+
+
+def _async_client_context(
+    *,
+    get: AsyncMock | None = None,
+    post: AsyncMock | None = None,
+) -> AsyncMock:
+    """Return an async context manager wrapping a fake httpx client."""
+    client = AsyncMock()
+    client.get = get or AsyncMock()
+    client.post = post or AsyncMock()
+    context_manager = AsyncMock()
+    context_manager.__aenter__.return_value = client
+    context_manager.__aexit__.return_value = None
+    return context_manager
 
 
 @pytest.fixture
-def slack_node():
+def slack_node() -> SlackNode:
+    """Return a SlackNode configured for tests."""
     return SlackNode(
         name="slack_node",
         tool_name="slack_post_message",
-        kwargs={"channel": "#general", "text": "Hello World!"},
+        kwargs={"channel_id": "C123", "text": "Hello World!"},
         bot_token="test_token",
-        team_id="test_team",
-        channel_ids="test_channel_ids",
+        team_id="T123",
+        channel_ids="C111, C222",
     )
 
 
 @pytest.mark.asyncio
-async def test_slack_node_run_success(slack_node):
-    """Test successful execution of SlackNode.run method."""
-    # Mock the result from the tool call
-    mock_result = MockToolResult(
-        content=[{"text": "Message sent successfully"}], is_error=False
+async def test_slack_node_posts_message_with_full_payload(
+    slack_node: SlackNode,
+) -> None:
+    """Post message preserves extra Slack Web API fields."""
+    slack_node.kwargs = {
+        "channel_id": "C123",
+        "text": "Hello World!",
+        "unfurl_links": False,
+        "unfurl_media": False,
+        "parse": "none",
+    }
+    post_mock = AsyncMock(return_value=FakeResponse({"ok": True, "ts": "123.456"}))
+
+    with patch(
+        "orcheo.nodes.slack.httpx.AsyncClient",
+        return_value=_async_client_context(post=post_mock),
+    ):
+        result = await slack_node.run({}, None)
+
+    post_mock.assert_awaited_once_with(
+        "https://slack.com/api/chat.postMessage",
+        headers={
+            "Authorization": "Bearer test_token",
+            "Content-Type": "application/json; charset=utf-8",
+        },
+        json={
+            "channel": "C123",
+            "text": "Hello World!",
+            "unfurl_links": False,
+            "unfurl_media": False,
+            "parse": "none",
+        },
     )
-
-    # Mock the client and its call_tool method
-    mock_client = AsyncMock()
-    mock_client.call_tool = AsyncMock(return_value=mock_result)
-
-    # Mock the transport
-    mock_transport = MagicMock()
-
-    # Mock the async context manager
-    mock_context_manager = AsyncMock()
-    mock_context_manager.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_context_manager.__aexit__ = AsyncMock(return_value=None)
-
-    with patch(
-        "orcheo.nodes.slack.NpxStdioTransport", return_value=mock_transport
-    ) as mock_transport_class:
-        with patch(
-            "orcheo.nodes.slack.Client", return_value=mock_context_manager
-        ) as mock_client_class:
-            result = await slack_node.run({}, None)
-
-            # Verify the transport was created with correct parameters
-            mock_transport_class.assert_called_once_with(
-                "@modelcontextprotocol/server-slack",
-                env_vars={
-                    "SLACK_BOT_TOKEN": "test_token",
-                    "SLACK_TEAM_ID": "test_team",
-                    "SLACK_CHANNEL_IDS": "test_channel_ids",
-                },
-            )
-
-            # Verify the client was created with the transport
-            mock_client_class.assert_called_once_with(mock_transport)
-
-            # Verify the tool was called with correct parameters
-            mock_client.call_tool.assert_called_once_with(
-                "slack_post_message",
-                {"channel": "#general", "text": "Hello World!"},
-            )
-
-            # Verify the result is converted to dict
-            assert result == {
-                "content": [{"text": "Message sent successfully"}],
-                "is_error": False,
-                "error": None,
-            }
+    assert result == {
+        "content": [
+            {"type": "text", "text": json.dumps({"ok": True, "ts": "123.456"})}
+        ],
+        "is_error": False,
+        "error": None,
+    }
 
 
 @pytest.mark.asyncio
-async def test_slack_node_run_missing_env_vars(slack_node):
-    """Test SlackNode.run with missing environment variables."""
-    mock_result = MockToolResult(content=[{"text": "Success"}], is_error=False)
+async def test_slack_node_reply_requires_thread_ts(slack_node: SlackNode) -> None:
+    """Thread replies validate required Slack arguments."""
+    slack_node.tool_name = "slack_reply_to_thread"
+    slack_node.kwargs = {"channel_id": "C123", "text": "reply"}
 
-    mock_client = AsyncMock()
-    mock_client.call_tool = AsyncMock(return_value=mock_result)
+    result = await slack_node.run({}, None)
 
-    mock_transport = MagicMock()
-
-    # Mock the async context manager
-    mock_context_manager = AsyncMock()
-    mock_context_manager.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_context_manager.__aexit__ = AsyncMock(return_value=None)
-
-    slack_node.channel_ids = None
-
-    with patch(
-        "orcheo.nodes.slack.NpxStdioTransport", return_value=mock_transport
-    ) as mock_transport_class:
-        with patch("orcheo.nodes.slack.Client", return_value=mock_context_manager):
-            await slack_node.run({}, None)
-
-            # Verify optional channel IDs are omitted when not provided
-            mock_transport_class.assert_called_once_with(
-                "@modelcontextprotocol/server-slack",
-                env_vars={
-                    "SLACK_BOT_TOKEN": "test_token",
-                    "SLACK_TEAM_ID": "test_team",
-                },
-            )
+    assert result == {
+        "content": [],
+        "is_error": True,
+        "error": "Missing required argument: thread_ts",
+    }
 
 
 @pytest.mark.asyncio
-async def test_slack_node_run_different_tool(slack_node):
-    """Test SlackNode.run with different tool and kwargs."""
-    # Update the node with different tool and kwargs
+async def test_slack_node_lists_public_channels(slack_node: SlackNode) -> None:
+    """Channel listing hits Slack conversations.list when no allowlist is set."""
     slack_node.tool_name = "slack_list_channels"
-    slack_node.kwargs = {"limit": 10}
-
-    mock_result = MockToolResult(
-        content=[{"channels": ["#general", "#random"]}], is_error=False
+    slack_node.channel_ids = None
+    slack_node.kwargs = {"limit": 25, "cursor": "abc"}
+    get_mock = AsyncMock(
+        return_value=FakeResponse({"ok": True, "channels": [{"id": "C123"}]})
     )
 
-    mock_client = AsyncMock()
-    mock_client.call_tool = AsyncMock(return_value=mock_result)
+    with patch(
+        "orcheo.nodes.slack.httpx.AsyncClient",
+        return_value=_async_client_context(get=get_mock),
+    ):
+        result = await slack_node.run({}, None)
 
-    mock_transport = MagicMock()
-
-    # Mock the async context manager
-    mock_context_manager = AsyncMock()
-    mock_context_manager.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_context_manager.__aexit__ = AsyncMock(return_value=None)
-
-    with patch("orcheo.nodes.slack.NpxStdioTransport", return_value=mock_transport):
-        with patch("orcheo.nodes.slack.Client", return_value=mock_context_manager):
-            result = await slack_node.run({}, None)
-
-            # Verify the correct tool was called with correct kwargs
-            mock_client.call_tool.assert_called_once_with(
-                "slack_list_channels", {"limit": 10}
-            )
-
-            assert result == {
-                "content": [{"channels": ["#general", "#random"]}],
-                "is_error": False,
-                "error": None,
-            }
+    get_mock.assert_awaited_once_with(
+        "https://slack.com/api/conversations.list",
+        headers={
+            "Authorization": "Bearer test_token",
+            "Content-Type": "application/json; charset=utf-8",
+        },
+        params={
+            "types": "public_channel",
+            "exclude_archived": "true",
+            "limit": "25",
+            "team_id": "T123",
+            "cursor": "abc",
+        },
+    )
+    assert result["is_error"] is False
 
 
 @pytest.mark.asyncio
-async def test_slack_node_run_error_case(slack_node):
-    """Test SlackNode.run when tool call results in error."""
-    mock_result = MockToolResult(content=[], is_error=True, error="Channel not found")
-
-    mock_client = AsyncMock()
-    mock_client.call_tool = AsyncMock(return_value=mock_result)
-
-    mock_transport = MagicMock()
-
-    # Mock the async context manager
-    mock_context_manager = AsyncMock()
-    mock_context_manager.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_context_manager.__aexit__ = AsyncMock(return_value=None)
-
-    with patch("orcheo.nodes.slack.NpxStdioTransport", return_value=mock_transport):
-        with patch("orcheo.nodes.slack.Client", return_value=mock_context_manager):
-            result = await slack_node.run({}, None)
-
-            # Verify error result is properly returned
-            assert result == {
-                "content": [],
-                "is_error": True,
-                "error": "Channel not found",
-            }
-
-
-@pytest.mark.asyncio
-async def test_slack_node_run_empty_kwargs(slack_node):
-    """Test SlackNode.run with empty kwargs."""
-    # Update the node with empty kwargs
+async def test_slack_node_lists_predefined_channels(slack_node: SlackNode) -> None:
+    """Channel allowlists fan out through conversations.info."""
+    slack_node.tool_name = "slack_list_channels"
     slack_node.kwargs = {}
-
-    mock_result = MockToolResult(content=[{"text": "Success"}], is_error=False)
-
-    mock_client = AsyncMock()
-    mock_client.call_tool = AsyncMock(return_value=mock_result)
-
-    mock_transport = MagicMock()
-
-    # Mock the async context manager
-    mock_context_manager = AsyncMock()
-    mock_context_manager.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_context_manager.__aexit__ = AsyncMock(return_value=None)
-
-    with patch("orcheo.nodes.slack.NpxStdioTransport", return_value=mock_transport):
-        with patch("orcheo.nodes.slack.Client", return_value=mock_context_manager):
-            result = await slack_node.run({}, None)
-
-            # Verify the tool was called with empty kwargs
-            mock_client.call_tool.assert_called_once_with("slack_post_message", {})
-
-            assert result == {
-                "content": [{"text": "Success"}],
-                "is_error": False,
-                "error": None,
-            }
-
-
-@pytest.mark.asyncio
-async def test_slack_node_sets_log_file_when_missing(slack_node):
-    mock_result = MockToolResult(content=[{"text": "Logged"}], is_error=False)
-
-    mock_client = AsyncMock()
-    mock_client.call_tool = AsyncMock(return_value=mock_result)
-
-    mock_context_manager = AsyncMock()
-    mock_context_manager.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_context_manager.__aexit__ = AsyncMock(return_value=None)
-
-    transport = DummyTransport()
+    get_mock = AsyncMock(
+        side_effect=[
+            FakeResponse({"ok": True, "channel": {"id": "C111", "is_archived": False}}),
+            FakeResponse({"ok": True, "channel": {"id": "C222", "is_archived": True}}),
+        ]
+    )
 
     with patch(
-        "orcheo.nodes.slack.NpxStdioTransport", return_value=transport
-    ) as mock_transport_class:
-        with patch(
-            "orcheo.nodes.slack.Client", return_value=mock_context_manager
-        ) as mock_client_class:
-            _ = await slack_node.run({}, None)
+        "orcheo.nodes.slack.httpx.AsyncClient",
+        return_value=_async_client_context(get=get_mock),
+    ):
+        result = await slack_node.run({}, None)
 
-            mock_transport_class.assert_called_once()
-            mock_client_class.assert_called_once_with(transport)
-
-    assert transport.log_file == _DEFAULT_STDIO_LOG_PATH
-
-
-@pytest.mark.asyncio
-async def test_slack_node_respects_stdio_log_env(monkeypatch, slack_node):
-    custom_path = "/tmp/custom-stdio.log"
-    monkeypatch.setenv("ORCHEO_MCP_STDIO_LOG", custom_path)
-
-    mock_result = MockToolResult(content=[{"text": "Logged"}], is_error=False)
-
-    mock_client = AsyncMock()
-    mock_client.call_tool = AsyncMock(return_value=mock_result)
-
-    mock_context_manager = AsyncMock()
-    mock_context_manager.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_context_manager.__aexit__ = AsyncMock(return_value=None)
-
-    transport = DummyTransport()
-
-    with patch("orcheo.nodes.slack.NpxStdioTransport", return_value=transport):
-        with patch("orcheo.nodes.slack.Client", return_value=mock_context_manager):
-            await slack_node.run({}, None)
-
-    assert transport.log_file == Path(custom_path)
+    assert get_mock.await_count == 2
+    first_call = get_mock.await_args_list[0]
+    second_call = get_mock.await_args_list[1]
+    assert first_call.kwargs["params"] == {"channel": "C111"}
+    assert second_call.kwargs["params"] == {"channel": "C222"}
+    payload = json.loads(result["content"][0]["text"])
+    assert payload["channels"] == [{"id": "C111", "is_archived": False}]
 
 
 @pytest.mark.asyncio
-async def test_slack_node_uses_default_log_path_for_blank_stdio_log_env(
-    monkeypatch, slack_node
-):
-    monkeypatch.setenv("ORCHEO_MCP_STDIO_LOG", "   ")
+async def test_slack_node_adds_reaction(slack_node: SlackNode) -> None:
+    """Reaction calls map SlackNode kwargs to reactions.add payload."""
+    slack_node.tool_name = "slack_add_reaction"
+    slack_node.kwargs = {
+        "channel_id": "C123",
+        "timestamp": "123.456",
+        "reaction": "eyes",
+    }
+    post_mock = AsyncMock(return_value=FakeResponse({"ok": True}))
 
-    mock_result = MockToolResult(content=[{"text": "Logged"}], is_error=False)
+    with patch(
+        "orcheo.nodes.slack.httpx.AsyncClient",
+        return_value=_async_client_context(post=post_mock),
+    ):
+        result = await slack_node.run({}, None)
 
-    mock_client = AsyncMock()
-    mock_client.call_tool = AsyncMock(return_value=mock_result)
-
-    mock_context_manager = AsyncMock()
-    mock_context_manager.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_context_manager.__aexit__ = AsyncMock(return_value=None)
-
-    transport = DummyTransport()
-
-    with patch("orcheo.nodes.slack.NpxStdioTransport", return_value=transport):
-        with patch("orcheo.nodes.slack.Client", return_value=mock_context_manager):
-            await slack_node.run({}, None)
-
-    assert transport.log_file == _DEFAULT_STDIO_LOG_PATH
-
-
-@pytest.mark.asyncio
-async def test_slack_node_uses_stderr_stream_for_special_log_device(
-    monkeypatch, slack_node
-):
-    monkeypatch.setenv("ORCHEO_MCP_STDIO_LOG", "/dev/stderr")
-
-    mock_result = MockToolResult(content=[{"text": "Logged"}], is_error=False)
-
-    mock_client = AsyncMock()
-    mock_client.call_tool = AsyncMock(return_value=mock_result)
-
-    mock_context_manager = AsyncMock()
-    mock_context_manager.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_context_manager.__aexit__ = AsyncMock(return_value=None)
-
-    transport = DummyTransport()
-
-    with patch("orcheo.nodes.slack.NpxStdioTransport", return_value=transport):
-        with patch("orcheo.nodes.slack.Client", return_value=mock_context_manager):
-            await slack_node.run({}, None)
-
-    assert transport.log_file is sys.stderr
+    post_mock.assert_awaited_once_with(
+        "https://slack.com/api/reactions.add",
+        headers={
+            "Authorization": "Bearer test_token",
+            "Content-Type": "application/json; charset=utf-8",
+        },
+        json={
+            "channel": "C123",
+            "timestamp": "123.456",
+            "name": "eyes",
+        },
+    )
+    assert result["is_error"] is False
 
 
 @pytest.mark.asyncio
-async def test_slack_node_resolves_stream_device_against_current_sys_streams(
-    monkeypatch, slack_node
-):
-    monkeypatch.setenv("ORCHEO_MCP_STDIO_LOG", "/dev/stderr")
+async def test_slack_node_gets_channel_history(slack_node: SlackNode) -> None:
+    """History calls use conversations.history."""
+    slack_node.tool_name = "slack_get_channel_history"
+    slack_node.kwargs = {"channel_id": "C123", "limit": 5}
+    get_mock = AsyncMock(return_value=FakeResponse({"ok": True, "messages": []}))
 
-    replacement_stderr = open(Path(__file__))
-    monkeypatch.setattr(sys, "stderr", replacement_stderr)
+    with patch(
+        "orcheo.nodes.slack.httpx.AsyncClient",
+        return_value=_async_client_context(get=get_mock),
+    ):
+        result = await slack_node.run({}, None)
 
-    mock_result = MockToolResult(content=[{"text": "Logged"}], is_error=False)
-
-    mock_client = AsyncMock()
-    mock_client.call_tool = AsyncMock(return_value=mock_result)
-
-    mock_context_manager = AsyncMock()
-    mock_context_manager.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_context_manager.__aexit__ = AsyncMock(return_value=None)
-
-    transport = DummyTransport()
-
-    try:
-        with patch("orcheo.nodes.slack.NpxStdioTransport", return_value=transport):
-            with patch("orcheo.nodes.slack.Client", return_value=mock_context_manager):
-                await slack_node.run({}, None)
-    finally:
-        replacement_stderr.close()
-
-    assert transport.log_file is replacement_stderr
+    get_mock.assert_awaited_once_with(
+        "https://slack.com/api/conversations.history",
+        headers={
+            "Authorization": "Bearer test_token",
+            "Content-Type": "application/json; charset=utf-8",
+        },
+        params={"channel": "C123", "limit": "5"},
+    )
+    assert result["is_error"] is False
 
 
 @pytest.mark.asyncio
-async def test_slack_node_falls_back_to_original_stream_when_proxy_lacks_fileno(
-    monkeypatch, slack_node
-):
-    monkeypatch.setenv("ORCHEO_MCP_STDIO_LOG", "/dev/stderr")
+async def test_slack_node_gets_thread_replies(slack_node: SlackNode) -> None:
+    """Thread replies use conversations.replies with ts query param."""
+    slack_node.tool_name = "slack_get_thread_replies"
+    slack_node.kwargs = {"channel_id": "C123", "thread_ts": "123.456"}
+    get_mock = AsyncMock(return_value=FakeResponse({"ok": True, "messages": []}))
 
-    replacement_stderr = LoggingProxy()
-    original_stderr = open(Path(__file__))
-    monkeypatch.setattr(sys, "stderr", replacement_stderr)
-    monkeypatch.setattr(sys, "__stderr__", original_stderr)
+    with patch(
+        "orcheo.nodes.slack.httpx.AsyncClient",
+        return_value=_async_client_context(get=get_mock),
+    ):
+        result = await slack_node.run({}, None)
 
-    mock_result = MockToolResult(content=[{"text": "Logged"}], is_error=False)
-
-    mock_client = AsyncMock()
-    mock_client.call_tool = AsyncMock(return_value=mock_result)
-
-    mock_context_manager = AsyncMock()
-    mock_context_manager.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_context_manager.__aexit__ = AsyncMock(return_value=None)
-
-    transport = DummyTransport()
-
-    try:
-        with patch("orcheo.nodes.slack.NpxStdioTransport", return_value=transport):
-            with patch("orcheo.nodes.slack.Client", return_value=mock_context_manager):
-                await slack_node.run({}, None)
-    finally:
-        original_stderr.close()
-
-    assert transport.log_file is original_stderr
+    get_mock.assert_awaited_once_with(
+        "https://slack.com/api/conversations.replies",
+        headers={
+            "Authorization": "Bearer test_token",
+            "Content-Type": "application/json; charset=utf-8",
+        },
+        params={"channel": "C123", "ts": "123.456"},
+    )
+    assert result["is_error"] is False
 
 
 @pytest.mark.asyncio
-async def test_slack_node_falls_back_to_default_path_when_no_stream_has_fileno(
-    monkeypatch, slack_node
-):
-    monkeypatch.setenv("ORCHEO_MCP_STDIO_LOG", "/dev/stderr")
+async def test_slack_node_gets_users_and_profile(slack_node: SlackNode) -> None:
+    """User listing and profile fetch both map to Slack user APIs."""
+    get_mock = AsyncMock(
+        side_effect=[
+            FakeResponse({"ok": True, "members": [{"id": "U123"}]}),
+            FakeResponse({"ok": True, "profile": {"real_name": "Test User"}}),
+        ]
+    )
 
-    monkeypatch.setattr(sys, "stderr", LoggingProxy())
-    monkeypatch.setattr(sys, "__stderr__", io.StringIO())
+    with patch(
+        "orcheo.nodes.slack.httpx.AsyncClient",
+        return_value=_async_client_context(get=get_mock),
+    ):
+        slack_node.tool_name = "slack_get_users"
+        slack_node.kwargs = {"limit": 15}
+        users_result = await slack_node.run({}, None)
 
-    mock_result = MockToolResult(content=[{"text": "Logged"}], is_error=False)
+        slack_node.tool_name = "slack_get_user_profile"
+        slack_node.kwargs = {"user_id": "U123"}
+        profile_result = await slack_node.run({}, None)
 
-    mock_client = AsyncMock()
-    mock_client.call_tool = AsyncMock(return_value=mock_result)
+    assert get_mock.await_args_list[0].kwargs["params"] == {
+        "limit": "15",
+        "team_id": "T123",
+    }
+    assert get_mock.await_args_list[1].kwargs["params"] == {
+        "user": "U123",
+        "include_labels": "true",
+    }
+    assert users_result["is_error"] is False
+    assert profile_result["is_error"] is False
 
-    mock_context_manager = AsyncMock()
-    mock_context_manager.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_context_manager.__aexit__ = AsyncMock(return_value=None)
 
-    transport = DummyTransport()
+@pytest.mark.asyncio
+async def test_slack_node_returns_http_errors(slack_node: SlackNode) -> None:
+    """HTTP failures surface as node errors."""
+    post_mock = AsyncMock(side_effect=httpx.HTTPError("boom"))
 
-    with patch("orcheo.nodes.slack.NpxStdioTransport", return_value=transport):
-        with patch("orcheo.nodes.slack.Client", return_value=mock_context_manager):
-            await slack_node.run({}, None)
+    with patch(
+        "orcheo.nodes.slack.httpx.AsyncClient",
+        return_value=_async_client_context(post=post_mock),
+    ):
+        result = await slack_node.run({}, None)
 
-    assert transport.log_file == _DEFAULT_STDIO_LOG_PATH
+    assert result == {
+        "content": [],
+        "is_error": True,
+        "error": "boom",
+    }

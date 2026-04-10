@@ -46,4 +46,10 @@ Cron trigger configuration:
   `/api/workflows/{workflow_id}/triggers/webhook?preserve_raw_body=true`.
 - Keep `slack_signing_secret` configured to enforce signature verification; only
   disable it if you fully trust the webhook source.
+- The example posts each news item as a compact Slack hyperlink in
+  `<url|title>` form, with `unfurl_links=false` and `unfurl_media=false` so
+  Slack keeps links as text instead of rich preview cards.
+- Multi-line titles are normalized onto one line before posting, and `|`
+  characters inside titles are replaced, so Slack does not break hyperlink
+  rendering for malformed labels.
 - Read updates only occur after Slack reports a successful post.
