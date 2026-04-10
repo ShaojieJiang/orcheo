@@ -232,7 +232,7 @@ def _run_install_flow(
     chatkit_domain_key: str | None,
     public_ingress: bool | None,
     public_host: str | None,
-    publish_debug_ports: bool | None,
+    publish_local_ports: bool | None,
     start_stack: bool | None,
     install_docker: bool | None,
     install_orcheo_skill: bool | None,
@@ -250,7 +250,7 @@ def _run_install_flow(
         chatkit_domain_key=chatkit_domain_key,
         public_ingress=public_ingress,
         public_host=public_host,
-        publish_debug_ports=publish_debug_ports,
+        publish_local_ports=publish_local_ports,
         start_stack=start_stack,
         install_docker=install_docker,
         install_orcheo_skill=install_orcheo_skill,
@@ -389,12 +389,12 @@ def install_command(
             help="Public hostname served by bundled Caddy in public-ingress mode.",
         ),
     ] = None,
-    publish_debug_ports: Annotated[
+    publish_local_ports: Annotated[
         bool | None,
         typer.Option(
-            "--publish-debug-ports/--hide-debug-ports",
+            "--publish-local-ports/--hide-local-ports",
             help=(
-                "Keep localhost backend/canvas debug ports published alongside the "
+                "Keep localhost backend/canvas access ports published alongside the "
                 "selected install mode."
             ),
         ),
@@ -445,7 +445,7 @@ def install_command(
         chatkit_domain_key=chatkit_domain_key,
         public_ingress=public_ingress,
         public_host=public_host,
-        publish_debug_ports=publish_debug_ports,
+        publish_local_ports=publish_local_ports,
         start_stack=start_stack,
         install_docker=install_docker,
         install_orcheo_skill=install_orcheo_skill,
@@ -508,12 +508,12 @@ def install_upgrade_command(
             help="Public hostname served by bundled Caddy in public-ingress mode.",
         ),
     ] = None,
-    publish_debug_ports: Annotated[
+    publish_local_ports: Annotated[
         bool | None,
         typer.Option(
-            "--publish-debug-ports/--hide-debug-ports",
+            "--publish-local-ports/--hide-local-ports",
             help=(
-                "Keep localhost backend/canvas debug ports published alongside the "
+                "Keep localhost backend/canvas access ports published alongside the "
                 "selected install mode."
             ),
         ),
@@ -562,7 +562,7 @@ def install_upgrade_command(
         chatkit_domain_key=chatkit_domain_key,
         public_ingress=public_ingress,
         public_host=public_host,
-        publish_debug_ports=publish_debug_ports,
+        publish_local_ports=publish_local_ports,
         start_stack=start_stack,
         install_docker=install_docker,
         install_orcheo_skill=install_orcheo_skill,

@@ -61,7 +61,7 @@ Use this path on a reachable self-hosted Linux host, such as a cloud VM or an on
 - `ORCHEO_API_URL=https://<host>`
 - `VITE_ORCHEO_BACKEND_URL=https://<host>`
 - `ORCHEO_CHATKIT_PUBLIC_BASE_URL=https://<host>`
-- `ORCHEO_CORS_ALLOW_ORIGINS=https://<host>` plus localhost origins when debug ports stay enabled
+- `ORCHEO_CORS_ALLOW_ORIGINS=https://<host>` plus localhost origins when local access ports stay enabled
 - `VITE_ALLOWED_HOSTS=localhost,127.0.0.1,<host>`
 
 Bundled Caddy is the recommended ingress for reachable self-hosted installs. It is not a replacement for Cloudflare Tunnel when inbound ports are unavailable.
@@ -94,11 +94,11 @@ For local development without OAuth, set `ORCHEO_AUTH_MODE=optional` in your `.e
 
 Keep Cloudflare Tunnel or a similar tunnel product for cases where the Orcheo host is not directly reachable from the internet, especially localhost development, callback testing from laptops, and NAT-restricted environments. Bundled Caddy expects direct inbound `80/443` access instead.
 
-When using Cloudflare Tunnel with separate browser and API hostnames, keep bundled public ingress disabled and preserve the debug-port profile:
+When using Cloudflare Tunnel with separate browser and API hostnames, keep bundled public ingress disabled and preserve the local-access profile:
 
 ```env
 ORCHEO_PUBLIC_INGRESS_ENABLED=false
-COMPOSE_PROFILES=debug-ports
+COMPOSE_PROFILES=local-access
 ORCHEO_API_URL=https://orcheo.example.com
 VITE_ORCHEO_BACKEND_URL=https://orcheo.example.com
 ORCHEO_CORS_ALLOW_ORIGINS=https://orcheo-canvas.example.com
