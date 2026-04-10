@@ -118,7 +118,7 @@ def _setup_config() -> SetupConfig:
         chatkit_domain_key=None,
         public_ingress_enabled=False,
         public_host=None,
-        publish_debug_ports=True,
+        publish_local_ports=True,
         backend_upstreams="backend:8000",
         canvas_upstream="canvas:5173",
         start_stack=True,
@@ -195,7 +195,7 @@ def test_execute_setup_bootstraps_stack_assets(
         "docker",
         "compose",
         "--profile",
-        "debug-ports",
+        "local-access",
         "-f",
         str(stack_dir / "docker-compose.yml"),
         "--project-directory",
@@ -206,7 +206,7 @@ def test_execute_setup_bootstraps_stack_assets(
         "docker",
         "compose",
         "--profile",
-        "debug-ports",
+        "local-access",
         "-f",
         str(stack_dir / "docker-compose.yml"),
         "--project-directory",
@@ -246,7 +246,7 @@ def test_execute_setup_upgrade_pulls_then_starts(
         "docker",
         "compose",
         "--profile",
-        "debug-ports",
+        "local-access",
         "-f",
         str(stack_dir / "docker-compose.yml"),
         "--project-directory",
@@ -257,7 +257,7 @@ def test_execute_setup_upgrade_pulls_then_starts(
         "docker",
         "compose",
         "--profile",
-        "debug-ports",
+        "local-access",
         "-f",
         str(stack_dir / "docker-compose.yml"),
         "--project-directory",
@@ -305,7 +305,7 @@ def test_run_setup_upgrade_preserves_existing_api_key_by_default(
         chatkit_domain_key=None,
         public_ingress=None,
         public_host=None,
-        publish_debug_ports=None,
+        publish_local_ports=None,
         start_stack=None,
         install_docker=None,
         install_orcheo_skill=None,
@@ -333,7 +333,7 @@ def test_run_setup_upgrade_honors_explicit_api_key(
         chatkit_domain_key=None,
         public_ingress=None,
         public_host=None,
-        publish_debug_ports=None,
+        publish_local_ports=None,
         start_stack=None,
         install_docker=None,
         install_orcheo_skill=None,
@@ -368,7 +368,7 @@ def test_run_setup_install_preserves_existing_env_by_default(
         chatkit_domain_key=None,
         public_ingress=None,
         public_host=None,
-        publish_debug_ports=None,
+        publish_local_ports=None,
         start_stack=False,
         install_docker=False,
         install_orcheo_skill=None,
@@ -407,7 +407,7 @@ def test_run_setup_install_explicit_public_ingress_updates_backend_url_defaults(
         chatkit_domain_key=None,
         public_ingress=True,
         public_host="orcheo.example.com",
-        publish_debug_ports=True,
+        publish_local_ports=True,
         start_stack=False,
         install_docker=False,
         install_orcheo_skill=False,
@@ -793,7 +793,7 @@ def test_execute_setup_uses_privileged_docker_after_autoinstall_until_shell_refr
         "docker",
         "compose",
         "--profile",
-        "debug-ports",
+        "local-access",
         "-f",
         str(stack_dir / "docker-compose.yml"),
         "--project-directory",
@@ -805,7 +805,7 @@ def test_execute_setup_uses_privileged_docker_after_autoinstall_until_shell_refr
         "docker",
         "compose",
         "--profile",
-        "debug-ports",
+        "local-access",
         "-f",
         str(stack_dir / "docker-compose.yml"),
         "--project-directory",
@@ -1290,7 +1290,7 @@ def test_setup_build_env_updates_and_warn_missing_branch(
         chatkit_domain_key="domain_pk_live",
         public_ingress_enabled=False,
         public_host=None,
-        publish_debug_ports=True,
+        publish_local_ports=True,
         backend_upstreams="backend:8000",
         canvas_upstream="canvas:5173",
         start_stack=False,
@@ -1300,7 +1300,7 @@ def test_setup_build_env_updates_and_warn_missing_branch(
     updates, defaults = setup_mod._build_env_updates(config)
     assert "ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN" not in updates
     assert "ORCHEO_AUTH_MODE" not in updates
-    assert updates["COMPOSE_PROFILES"] == "debug-ports"
+    assert updates["COMPOSE_PROFILES"] == "local-access"
     assert updates["VITE_ORCHEO_CHATKIT_DOMAIN_KEY"] == "domain_pk_live"
     assert defaults["ORCHEO_POSTGRES_PASSWORD"]
 
@@ -1401,7 +1401,7 @@ def test_run_setup_prints_generated_key_and_oauth_notice(
         chatkit_domain_key=None,
         public_ingress=None,
         public_host=None,
-        publish_debug_ports=None,
+        publish_local_ports=None,
         start_stack=None,
         install_docker=None,
         install_orcheo_skill=None,
@@ -1420,7 +1420,7 @@ def test_run_setup_prints_generated_key_and_oauth_notice(
         chatkit_domain_key=None,
         public_ingress=None,
         public_host=None,
-        publish_debug_ports=None,
+        publish_local_ports=None,
         start_stack=False,
         install_docker=False,
         install_orcheo_skill=None,
@@ -1449,7 +1449,7 @@ def test_run_setup_public_ingress_derives_public_env_contract(
         chatkit_domain_key=None,
         public_ingress=True,
         public_host="orcheo.example.com",
-        publish_debug_ports=True,
+        publish_local_ports=True,
         start_stack=False,
         install_docker=False,
         install_orcheo_skill=False,
@@ -1467,7 +1467,7 @@ def test_run_setup_public_ingress_derives_public_env_contract(
         "https://orcheo.example.com,http://localhost:5173,http://127.0.0.1:5173"
     )
     assert updates["VITE_ALLOWED_HOSTS"] == "localhost,127.0.0.1,orcheo.example.com"
-    assert updates["COMPOSE_PROFILES"] == "public-ingress,debug-ports"
+    assert updates["COMPOSE_PROFILES"] == "public-ingress,local-access"
     assert updates["ORCHEO_CADDY_SITE_ADDRESS"] == "orcheo.example.com"
 
 
@@ -1486,7 +1486,7 @@ def test_run_setup_public_ingress_requires_hostname_with_yes(
             chatkit_domain_key=None,
             public_ingress=True,
             public_host=None,
-            publish_debug_ports=None,
+            publish_local_ports=None,
             start_stack=False,
             install_docker=False,
             install_orcheo_skill=False,
@@ -1504,7 +1504,7 @@ def test_setup_public_ingress_helpers_and_summary(
     config = _setup_config()
     config.public_ingress_enabled = True
     config.public_host = "orcheo.example.com"
-    config.publish_debug_ports = False
+    config.publish_local_ports = False
     config.start_stack = False
     config.backend_url = "https://orcheo.example.com"
 
@@ -1514,7 +1514,7 @@ def test_setup_public_ingress_helpers_and_summary(
     healthcheck_config = _setup_config()
     healthcheck_config.public_ingress_enabled = True
     healthcheck_config.public_host = "orcheo.example.com"
-    healthcheck_config.publish_debug_ports = True
+    healthcheck_config.publish_local_ports = True
     assert (
         setup_mod._build_healthcheck_url(healthcheck_config) == "http://localhost:8000"
     )

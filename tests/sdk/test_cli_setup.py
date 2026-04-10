@@ -429,7 +429,7 @@ def test_build_env_updates(monkeypatch):
         chatkit_domain_key="domain",
         public_ingress_enabled=False,
         public_host=None,
-        publish_debug_ports=True,
+        publish_local_ports=True,
         backend_upstreams="backend:8000",
         canvas_upstream="canvas:5173",
         start_stack=False,
@@ -442,7 +442,7 @@ def test_build_env_updates(monkeypatch):
     assert updates["ORCHEO_CORS_ALLOW_ORIGINS"] == (
         "http://localhost:5173,http://127.0.0.1:5173"
     )
-    assert updates["COMPOSE_PROFILES"] == "debug-ports"
+    assert updates["COMPOSE_PROFILES"] == "local-access"
     assert updates["VITE_ORCHEO_CHATKIT_DOMAIN_KEY"] == "domain"
     assert updates["ORCHEO_STACK_IMAGE"] == f"{setup._STACK_IMAGE_REPOSITORY}:2.0"
     assert defaults["ORCHEO_POSTGRES_PASSWORD"] == "safe"
@@ -459,7 +459,7 @@ def test_build_env_updates_hides_debug_ports_in_local_only_mode(monkeypatch):
         chatkit_domain_key="domain",
         public_ingress_enabled=False,
         public_host=None,
-        publish_debug_ports=False,
+        publish_local_ports=False,
         backend_upstreams="backend:8000",
         canvas_upstream="canvas:5173",
         start_stack=False,
@@ -480,7 +480,7 @@ def test_setup_resolution_helpers_cover_env_branches(
             [
                 "ORCHEO_PUBLIC_INGRESS_ENABLED=true",
                 "ORCHEO_PUBLIC_HOST=Orcheo.Example.com",
-                "ORCHEO_PUBLISH_DEBUG_PORTS=off",
+                "ORCHEO_PUBLISH_LOCAL_PORTS=off",
                 "ORCHEO_CADDY_BACKEND_UPSTREAMS=backend:9000",
                 "ORCHEO_CADDY_CANVAS_UPSTREAM=canvas:6000",
             ]
@@ -505,7 +505,7 @@ def test_setup_resolution_helpers_cover_env_branches(
         == "orcheo.example.com"
     )
     assert (
-        setup._resolve_publish_debug_ports(
+        setup._resolve_publish_local_ports(
             None,
             public_ingress_enabled=True,
             yes=False,
@@ -552,7 +552,7 @@ def test_setup_resolution_helpers_cover_env_branches(
 
     monkeypatch.setattr(setup.typer, "confirm", lambda *args, **kwargs: False)
     assert (
-        setup._resolve_publish_debug_ports(
+        setup._resolve_publish_local_ports(
             None,
             public_ingress_enabled=True,
             yes=False,
@@ -562,7 +562,7 @@ def test_setup_resolution_helpers_cover_env_branches(
         is False
     )
     assert (
-        setup._resolve_publish_debug_ports(
+        setup._resolve_publish_local_ports(
             None,
             public_ingress_enabled=True,
             yes=True,
@@ -647,7 +647,7 @@ def test_ensure_stack_assets_fresh(monkeypatch, tmp_path):
         chatkit_domain_key=None,
         public_ingress_enabled=False,
         public_host=None,
-        publish_debug_ports=True,
+        publish_local_ports=True,
         backend_upstreams="backend:8000",
         canvas_upstream="canvas:5173",
         start_stack=False,
@@ -695,7 +695,7 @@ def test_ensure_stack_assets_existing_env(monkeypatch, tmp_path):
         chatkit_domain_key=None,
         public_ingress_enabled=False,
         public_host=None,
-        publish_debug_ports=True,
+        publish_local_ports=True,
         backend_upstreams="backend:8000",
         canvas_upstream="canvas:5173",
         start_stack=False,
@@ -721,7 +721,7 @@ def test_run_setup_generates_api_key(monkeypatch, tmp_path):
         chatkit_domain_key="domain",
         public_ingress=None,
         public_host=None,
-        publish_debug_ports=None,
+        publish_local_ports=None,
         start_stack=False,
         install_docker=False,
         install_orcheo_skill=False,
@@ -775,7 +775,7 @@ def test_execute_setup_without_start(monkeypatch, tmp_path):
         chatkit_domain_key=None,
         public_ingress_enabled=False,
         public_host=None,
-        publish_debug_ports=True,
+        publish_local_ports=True,
         backend_upstreams="backend:8000",
         canvas_upstream="canvas:5173",
         start_stack=False,
@@ -814,7 +814,7 @@ def test_execute_setup_with_start(monkeypatch, tmp_path):
         chatkit_domain_key=None,
         public_ingress_enabled=False,
         public_host=None,
-        publish_debug_ports=True,
+        publish_local_ports=True,
         backend_upstreams="backend:8000",
         canvas_upstream="canvas:5173",
         start_stack=True,
@@ -850,7 +850,7 @@ def test_execute_setup_missing_docker_command(monkeypatch, tmp_path):
         chatkit_domain_key=None,
         public_ingress_enabled=False,
         public_host=None,
-        publish_debug_ports=True,
+        publish_local_ports=True,
         backend_upstreams="backend:8000",
         canvas_upstream="canvas:5173",
         start_stack=True,
@@ -895,12 +895,12 @@ def test_print_setup_resolution_notes_public_ingress_debug_disabled() -> None:
         preserve_existing_backend_url=False,
         resolved_public_ingress_enabled=True,
         resolved_public_host="orcheo.example.com",
-        resolved_publish_debug_ports=False,
+        resolved_publish_local_ports=False,
     )
 
     output = console.file.getvalue()
     assert "Bundled public ingress enabled for orcheo.example.com" in output
-    assert "Local backend/canvas debug ports will stay disabled" in output
+    assert "Local backend/canvas ports will stay disabled" in output
 
 
 def test_print_summary():
@@ -913,7 +913,7 @@ def test_print_summary():
         chatkit_domain_key=None,
         public_ingress_enabled=False,
         public_host=None,
-        publish_debug_ports=True,
+        publish_local_ports=True,
         backend_upstreams="backend:8000",
         canvas_upstream="canvas:5173",
         start_stack=True,

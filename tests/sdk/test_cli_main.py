@@ -411,7 +411,7 @@ def test_run_install_flow_forced_mode(monkeypatch: pytest.MonkeyPatch) -> None:
         chatkit_domain_key=None,
         public_ingress_enabled=False,
         public_host=None,
-        publish_debug_ports=True,
+        publish_local_ports=True,
         backend_upstreams="backend:8000",
         canvas_upstream="canvas:5173",
         start_stack=False,
@@ -458,7 +458,7 @@ def test_run_install_flow_forced_mode(monkeypatch: pytest.MonkeyPatch) -> None:
         chatkit_domain_key=None,
         public_ingress=None,
         public_host=None,
-        publish_debug_ports=None,
+        publish_local_ports=None,
         start_stack=None,
         install_docker=None,
         install_orcheo_skill=None,
@@ -481,7 +481,7 @@ def test_run_install_flow_parses_modes(monkeypatch: pytest.MonkeyPatch) -> None:
         chatkit_domain_key=None,
         public_ingress_enabled=False,
         public_host=None,
-        publish_debug_ports=True,
+        publish_local_ports=True,
         backend_upstreams="backend:8000",
         canvas_upstream="canvas:5173",
         start_stack=False,
@@ -510,7 +510,7 @@ def test_run_install_flow_parses_modes(monkeypatch: pytest.MonkeyPatch) -> None:
         chatkit_domain_key=None,
         public_ingress=None,
         public_host=None,
-        publish_debug_ports=None,
+        publish_local_ports=None,
         start_stack=None,
         install_docker=None,
         install_orcheo_skill=None,
@@ -576,7 +576,7 @@ def test_compose_profile_args(
             [
                 "# comment",
                 "OTHER=value",
-                "COMPOSE_PROFILES= public-ingress , 'debug-ports', \"extra\" ",
+                "COMPOSE_PROFILES= public-ingress , 'local-access', \"extra\" ",
                 "IGNORED=after",
             ]
         ),
@@ -587,7 +587,7 @@ def test_compose_profile_args(
         "--profile",
         "public-ingress",
         "--profile",
-        "debug-ports",
+        "local-access",
         "--profile",
         "extra",
     ]
@@ -600,13 +600,13 @@ def test_compose_profile_args(
     blank_profiles_dir = tmp_path / "stack-blank"
     blank_profiles_dir.mkdir()
     (blank_profiles_dir / ".env").write_text(
-        "COMPOSE_PROFILES=public-ingress, ,debug-ports\n", encoding="utf-8"
+        "COMPOSE_PROFILES=public-ingress, ,local-access\n", encoding="utf-8"
     )
     assert main_mod._compose_profile_args(blank_profiles_dir) == [
         "--profile",
         "public-ingress",
         "--profile",
-        "debug-ports",
+        "local-access",
     ]
 
 
