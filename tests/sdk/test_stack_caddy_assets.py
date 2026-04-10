@@ -25,6 +25,10 @@ def test_stack_compose_defines_public_ingress_and_debug_profiles() -> None:
         "CMD-SHELL",
         "curl -fsS http://localhost:8000/api/system/health > /dev/null",
     ]
+    assert services["canvas"]["healthcheck"]["test"] == [
+        "CMD-SHELL",
+        "wget -q -O /dev/null http://localhost:5173/ || exit 1",
+    ]
     assert (
         services["backend"]["depends_on"]["postgres"]["condition"] == "service_healthy"
     )
