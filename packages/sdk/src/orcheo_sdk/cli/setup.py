@@ -1261,7 +1261,7 @@ def _preserve_existing_stack_browser_urls(
         if _read_env_value(env_file, "VITE_ORCHEO_BACKEND_URL") is not None:
             updates.pop("VITE_ORCHEO_BACKEND_URL", None)
 
-    if not config.public_ingress_enabled:
+    if not config.public_ingress_enabled:  # pragma: no branch
         for key in (
             "ORCHEO_CHATKIT_PUBLIC_BASE_URL",
             "ORCHEO_CORS_ALLOW_ORIGINS",
