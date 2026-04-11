@@ -615,9 +615,12 @@ def _drain_login_output(
             or _extract_device_code(raw_output)
             or _extract_device_code(rendered_output)
         )
-        auth_token = auth_token or _extract_worker_auth_token(
-            raw_output,
-            visible_output,
+        auth_token = (
+            _extract_worker_auth_token(
+                raw_output,
+                visible_output,
+            )
+            or auth_token
         )
         output = _redact_sensitive_output(visible_output)
         on_output(output, auth_url, device_code)
