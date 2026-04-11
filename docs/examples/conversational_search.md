@@ -4,7 +4,7 @@
     Working with these examples requires at least finishing the [Quick Start](../index.md#quick-start) OR the [Manual Setup Quick Start](../manual_setup.md#quick-start) first.
 
 !!! tip "AI Coding Assistants"
-    If you use [Claude Code](https://claude.ai/code), [Codex CLI](https://github.com/openai/codex), or [Cursor](https://cursor.com), we recommend installing the `orcheo-demos` skill from [agent-skills](https://github.com/ShaojieJiang/agent-skills) to streamline running and deploying these demos.
+    If you use [Claude Code](https://claude.ai/code), [Codex CLI](https://github.com/openai/codex), or [Cursor](https://cursor.com), we recommend installing the `orcheo-demos` skill from [agent-skills](https://github.com/AI-Colleagues/agent-skills) to streamline running and deploying these demos.
 
 This guide walks you through a progressive demo suite for building conversational search applications with Orcheo. Each demo builds on the previous one, taking you from basic RAG to production-ready evaluation pipelines.
 
@@ -542,10 +542,10 @@ Execute via the Orcheo Console or API to run evaluation sweeps.
   "tags": ["conversational-search", "demo-6", "evaluation"],
   "configurable": {
     "dataset": {
-      "golden_path": "https://raw.githubusercontent.com/ShaojieJiang/orcheo/refs/heads/main/examples/conversational_search/data/golden/golden_dataset.json",
-      "queries_path": "https://raw.githubusercontent.com/ShaojieJiang/orcheo/refs/heads/main/examples/conversational_search/data/queries.json",
-      "labels_path": "https://raw.githubusercontent.com/ShaojieJiang/orcheo/refs/heads/main/examples/conversational_search/data/labels/relevance_labels.json",
-      "docs_path": "https://raw.githubusercontent.com/ShaojieJiang/orcheo/refs/heads/main/examples/conversational_search/data/docs/product_overview.md",
+      "golden_path": "https://raw.githubusercontent.com/AI-Colleagues/orcheo/refs/heads/main/examples/conversational_search/data/golden/golden_dataset.json",
+      "queries_path": "https://raw.githubusercontent.com/AI-Colleagues/orcheo/refs/heads/main/examples/conversational_search/data/queries.json",
+      "labels_path": "https://raw.githubusercontent.com/AI-Colleagues/orcheo/refs/heads/main/examples/conversational_search/data/labels/relevance_labels.json",
+      "docs_path": "https://raw.githubusercontent.com/AI-Colleagues/orcheo/refs/heads/main/examples/conversational_search/data/docs/product_overview.md",
       "split": "test",
       "limit": null
     },

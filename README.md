@@ -1,14 +1,14 @@
 # Orcheo
 
-[![CI](https://github.com/ShaojieJiang/orcheo/actions/workflows/ci.yml/badge.svg?event=push)](https://github.com/ShaojieJiang/orcheo/actions/workflows/ci.yml?query=branch%3Amain)
-[![Coverage](https://coverage-badge.samuelcolvin.workers.dev/ShaojieJiang/orcheo.svg)](https://coverage-badge.samuelcolvin.workers.dev/redirect/ShaojieJiang/orcheo)
+[![CI](https://github.com/AI-Colleagues/orcheo/actions/workflows/ci.yml/badge.svg?event=push)](https://github.com/AI-Colleagues/orcheo/actions/workflows/ci.yml?query=branch%3Amain)
+[![Coverage](https://coverage-badge.samuelcolvin.workers.dev/AI-Colleagues/orcheo.svg)](https://coverage-badge.samuelcolvin.workers.dev/redirect/AI-Colleagues/orcheo)
 [![PyPI - Core](https://img.shields.io/pypi/v/orcheo.svg?logo=python&label=core)](https://pypi.org/project/orcheo/)
 [![PyPI - Backend](https://img.shields.io/pypi/v/orcheo-backend.svg?logo=python&label=backend)](https://pypi.org/project/orcheo-backend/)
 [![PyPI - SDK](https://img.shields.io/pypi/v/orcheo-sdk.svg?logo=python&label=sdk)](https://pypi.org/project/orcheo-sdk/)
 [![PyPI - Agentensor](https://img.shields.io/pypi/v/agentensor.svg?logo=python&label=agentensor)](https://pypi.org/project/agentensor/)
 [![npm - Canvas](https://img.shields.io/npm/v/orcheo-canvas.svg?logo=npm&label=canvas)](https://www.npmjs.com/package/orcheo-canvas)
-[![GHCR - Stack](https://img.shields.io/badge/dynamic/xml?url=https%3A%2F%2Fghcr-badge.egpl.dev%2Fshaojiejiang%2Forcheo-stack%2Flatest_tag%3Fignore%3Dlatest&query=%2F%2F*%5Blocal-name()%3D%27g%27%5D%5Blast()%5D%2F*%5Blocal-name()%3D%27text%27%5D%5Blast()%5D&logo=docker&label=stack)](https://github.com/ShaojieJiang/orcheo/pkgs/container/orcheo-stack)
-[![GHCR - Canvas](https://img.shields.io/badge/dynamic/xml?url=https%3A%2F%2Fghcr-badge.egpl.dev%2Fshaojiejiang%2Forcheo-canvas%2Flatest_tag%3Fignore%3Dlatest&query=%2F%2F*%5Blocal-name()%3D%27g%27%5D%5Blast()%5D%2F*%5Blocal-name()%3D%27text%27%5D%5Blast()%5D&logo=docker&label=canvas)](https://github.com/ShaojieJiang/orcheo/pkgs/container/orcheo-canvas)
+[![GHCR - Stack](https://img.shields.io/badge/dynamic/xml?url=https%3A%2F%2Fghcr-badge.egpl.dev%2Fai-colleagues%2Forcheo-stack%2Flatest_tag%3Fignore%3Dlatest&query=%2F%2F*%5Blocal-name()%3D%27g%27%5D%5Blast()%5D%2F*%5Blocal-name()%3D%27text%27%5D%5Blast()%5D&logo=docker&label=stack)](https://github.com/AI-Colleagues/orcheo/pkgs/container/orcheo-stack)
+[![GHCR - Canvas](https://img.shields.io/badge/dynamic/xml?url=https%3A%2F%2Fghcr-badge.egpl.dev%2Fai-colleagues%2Forcheo-canvas%2Flatest_tag%3Fignore%3Dlatest&query=%2F%2F*%5Blocal-name()%3D%27g%27%5D%5Blast()%5D%2F*%5Blocal-name()%3D%27text%27%5D%5Blast()%5D&logo=docker&label=canvas)](https://github.com/AI-Colleagues/orcheo/pkgs/container/orcheo-canvas)
 [![Documentation](https://readthedocs.org/projects/orcheo/badge/?version=latest)](https://orcheo.readthedocs.io/en/latest/)
 
 Orcheo is a workflow orchestration platform designed for vibe coding — AI coding agents like Claude Code can start services, build workflows, and deploy them for you automatically. Read the [full documentation](https://orcheo.readthedocs.io/en/latest/) for guides, API reference, and examples.
@@ -19,7 +19,7 @@ Orcheo is a workflow orchestration platform designed for vibe coding — AI codi
 
 ## Why Orcheo?
 
-- **Vibe-coding-first**: Already using Claude Code, Codex CLI, or Cursor? You **don't** need to learn Orcheo. Install the [agent skill](https://github.com/ShaojieJiang/agent-skills) and let your AI agent handle setup, workflow creation, and deployment.
+- **Vibe-coding-first**: Already using Claude Code, Codex CLI, or Cursor? You **don't** need to learn Orcheo. Install the [agent skill](https://github.com/AI-Colleagues/agent-skills) and let your AI agent handle setup, workflow creation, and deployment.
 - **Python-native**: Workflows are Python code powered by LangGraph — no proprietary DSL to learn.
 - **Backend-first**: Run headless in production; the UI is optional.
 
@@ -87,7 +87,7 @@ The fastest way to get started with workflow building is still the **Agent Skill
 
 ### 1. Install the Orcheo Agent Skill
 
-Add the [Orcheo agent skill](https://github.com/ShaojieJiang/agent-skills) to your AI coding agent (Claude Code, Cursor, etc.) by following the installation instructions in the repo.
+Add the [Orcheo agent skill](https://github.com/AI-Colleagues/agent-skills) to your AI coding agent (Claude Code, Cursor, etc.) by following the installation instructions in the repo.
 
 ### 2. Let Your Agent Do the Work
 
@@ -137,7 +137,7 @@ while `deepseek:deepseek-chat` looks for `deepseek_api_key`.
 We welcome contributions from the community:
 
 - **Share your extensions**: Custom nodes, agent tools, and workflows that extend Orcheo's capabilities. See the [Custom Nodes and Tools guide](https://orcheo.readthedocs.io/en/latest/custom_nodes_and_tools/) for how to create and load custom extensions.
-- **How to contribute**: Open an [issue](https://github.com/ShaojieJiang/orcheo/issues), submit a [pull request](https://github.com/ShaojieJiang/orcheo/pulls), or start a [discussion](https://github.com/ShaojieJiang/orcheo/discussions). You can also publish and share your extensions independently for others to install.
+- **How to contribute**: Open an [issue](https://github.com/AI-Colleagues/orcheo/issues), submit a [pull request](https://github.com/AI-Colleagues/orcheo/pulls), or start a [discussion](https://github.com/AI-Colleagues/orcheo/discussions). You can also publish and share your extensions independently for others to install.
 
 ## Citation
 

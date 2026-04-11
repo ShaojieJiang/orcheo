@@ -3,10 +3,10 @@
   "tags": ["conversational-search", "demo-6", "evaluation"],
   "configurable": {
     "dataset": {
-      "golden_path": "https://raw.githubusercontent.com/ShaojieJiang/orcheo/refs/heads/main/examples/conversational_search/data/golden/golden_dataset.json",
-      "queries_path": "https://raw.githubusercontent.com/ShaojieJiang/orcheo/refs/heads/main/examples/conversational_search/data/queries.json",
-      "labels_path": "https://raw.githubusercontent.com/ShaojieJiang/orcheo/refs/heads/main/examples/conversational_search/data/labels/relevance_labels.json",
-      "docs_path": "https://raw.githubusercontent.com/ShaojieJiang/orcheo/refs/heads/main/examples/conversational_search/data/docs/product_overview.md",
+      "golden_path": "https://raw.githubusercontent.com/AI-Colleagues/orcheo/refs/heads/main/examples/conversational_search/data/golden/golden_dataset.json",
+      "queries_path": "https://raw.githubusercontent.com/AI-Colleagues/orcheo/refs/heads/main/examples/conversational_search/data/queries.json",
+      "labels_path": "https://raw.githubusercontent.com/AI-Colleagues/orcheo/refs/heads/main/examples/conversational_search/data/labels/relevance_labels.json",
+      "docs_path": "https://raw.githubusercontent.com/AI-Colleagues/orcheo/refs/heads/main/examples/conversational_search/data/docs/product_overview.md",
       "split": "test",
       "limit": null
     },

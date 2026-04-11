@@ -169,8 +169,8 @@ lock consistency. It exits `1` when any error-level diagnostic is present.
 Two reference plugins exercise the listener-plugin contract end to end:
 
 ```bash
-orcheo plugin install "git+https://github.com/ShaojieJiang/orcheo-plugin-wecom-listener.git"
-orcheo plugin install "git+https://github.com/ShaojieJiang/orcheo-plugin-lark-listener.git"
+orcheo plugin install "git+https://github.com/AI-Colleagues/orcheo-plugin-wecom-listener.git"
+orcheo plugin install "git+https://github.com/AI-Colleagues/orcheo-plugin-lark-listener.git"
 ```
 
 They register:

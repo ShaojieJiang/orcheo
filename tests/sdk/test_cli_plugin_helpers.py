@@ -162,10 +162,10 @@ def test_is_local_plugin_ref_detects_variants(tmp_path: Path) -> None:
     assert plugin_module._is_local_plugin_ref("plugin.whl")
     assert plugin_module._is_local_plugin_ref("group/plugin")
     assert not plugin_module._is_local_plugin_ref(
-        "git+https://github.com/ShaojieJiang/orcheo-plugin-wecom-listener.git"
+        "git+https://github.com/AI-Colleagues/orcheo-plugin-wecom-listener.git"
     )
     assert not plugin_module._is_local_plugin_ref(
-        "git@github.com:ShaojieJiang/orcheo-plugin-wecom-listener.git"
+        "git@github.com:AI-Colleagues/orcheo-plugin-wecom-listener.git"
     )
 
 

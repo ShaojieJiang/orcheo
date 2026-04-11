@@ -94,9 +94,9 @@ orcheo-seed-env = "orcheo.tooling.env:main"
 orcheo-test = "orcheo.tooling.commands:test"
 
 [project.urls]
-Homepage = "https://github.com/ShaojieJiang/orcheo"
-Issues = "https://github.com/ShaojieJiang/orcheo/issues"
-Source = "https://github.com/ShaojieJiang/orcheo"
+Homepage = "https://github.com/AI-Colleagues/orcheo"
+Issues = "https://github.com/AI-Colleagues/orcheo/issues"
+Source = "https://github.com/AI-Colleagues/orcheo"
 
 [tool.coverage.report]
 exclude_lines = [

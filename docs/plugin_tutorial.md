@@ -15,7 +15,7 @@ how to extend that pattern to edges, agent tools, triggers, and listeners.
 The fastest path is to clone the plugin template repository:
 
 ```bash
-git clone https://github.com/ShaojieJiang/orcheo-plugin-template orcheo-plugin-acme
+git clone https://github.com/AI-Colleagues/orcheo-plugin-template orcheo-plugin-acme
 cd orcheo-plugin-acme
 ```
 
@@ -150,7 +150,7 @@ Run with:
 uv run pytest
 ```
 
-The [plugin template repository](https://github.com/ShaojieJiang/orcheo-plugin-template)
+The [plugin template repository](https://github.com/AI-Colleagues/orcheo-plugin-template)
 ships with equivalent tests you can adapt.
 
 ## 5. Register additional component types
@@ -231,8 +231,8 @@ Add `"triggers"` to `exports` in `orcheo_plugin.toml`.
 Listener plugins are the most involved. See the WeCom and Lark reference
 plugins for complete, tested implementations:
 
-- [orcheo-plugin-wecom-listener](https://github.com/ShaojieJiang/orcheo-plugin-wecom-listener)
-- [orcheo-plugin-lark-listener](https://github.com/ShaojieJiang/orcheo-plugin-lark-listener)
+- [orcheo-plugin-wecom-listener](https://github.com/AI-Colleagues/orcheo-plugin-wecom-listener)
+- [orcheo-plugin-lark-listener](https://github.com/AI-Colleagues/orcheo-plugin-lark-listener)
 
 A listener must supply:
 
@@ -368,9 +368,9 @@ in separate processes. Plugin state lives under `~/.orcheo/plugins/` (or
 Two production-grade listener plugins are available as reference
 implementations:
 
-- [orcheo-plugin-wecom-listener](https://github.com/ShaojieJiang/orcheo-plugin-wecom-listener) —
+- [orcheo-plugin-wecom-listener](https://github.com/AI-Colleagues/orcheo-plugin-wecom-listener) —
   WeCom long-connection listener
-- [orcheo-plugin-lark-listener](https://github.com/ShaojieJiang/orcheo-plugin-lark-listener) —
+- [orcheo-plugin-lark-listener](https://github.com/AI-Colleagues/orcheo-plugin-lark-listener) —
   Lark listener
 
 Read their source before building a listener plugin of your own. The Canvas
@@ -380,7 +380,7 @@ events from multiple platforms.
 
 ## Related references
 
-- [Plugin Template](https://github.com/ShaojieJiang/orcheo-plugin-template) —
+- [Plugin Template](https://github.com/AI-Colleagues/orcheo-plugin-template) —
   standalone starter repository
 - [Plugin Reference](custom_nodes_and_tools.md) — full authoring API reference
 - [CLI Reference](cli_reference.md) — complete `orcheo plugin` commands

@@ -12,7 +12,7 @@
 
 | Documents | Link | Owner | Name |
 |-----------|------|-------|------|
-| Prior Artifacts | [agentensor trainer example](https://github.com/ShaojieJiang/agentensor/blob/main/examples/train.py) | Shaojie Jiang | Agentensor trainer example |
+| Prior Artifacts | [agentensor trainer example](https://github.com/AI-Colleagues/agentensor/blob/main/examples/train.py) | Shaojie Jiang | Agentensor trainer example |
 | Design Review | `./design.md` | Shaojie Jiang | Agent training design |
 | Eng Requirement Doc | `./requirements.md` | Shaojie Jiang | Agent training PRD |
 | Experiment Plan | `./plan.md` | Shaojie Jiang | Agent training plan |
@@ -32,7 +32,7 @@ Workflow authors, agent builders, and evaluation engineers who need reproducible
 | Agent builder | Run AgentensorNode in training mode to optimize prompts and checkpoint configs | I can iteratively improve agent performance and reuse optimized settings | P0 | Training produces an optimized `RunnableConfig`, emits evaluation at checkpoints, and persists/downloads the best config |
 
 ### Context, Problems, Opportunities
-Current workflows cannot accept `RunnableConfig` at runtime, forcing code edits for changes to tracing, concurrency, tags, and metadata. Agent evaluation is manual and disconnected from workflow execution, and prompt optimization relies on ad hoc scripts (e.g., the example trainer in `https://github.com/ShaojieJiang/agentensor/blob/main/examples/train.py`). By formalizing runtime config ingestion and shipping a first-class AgentensorNode, we reduce friction for experimenters, improve reproducibility, and enable automated prompt tuning aligned with LangGraph execution.
+Current workflows cannot accept `RunnableConfig` at runtime, forcing code edits for changes to tracing, concurrency, tags, and metadata. Agent evaluation is manual and disconnected from workflow execution, and prompt optimization relies on ad hoc scripts (e.g., the example trainer in `https://github.com/AI-Colleagues/agentensor/blob/main/examples/train.py`). By formalizing runtime config ingestion and shipping a first-class AgentensorNode, we reduce friction for experimenters, improve reproducibility, and enable automated prompt tuning aligned with LangGraph execution.
 
 ### Product goals and Non-goals
 Goals: support runtime `RunnableConfig` across API/SDK runs; deliver an AgentensorNode with evaluation-only and training modes; provide checkpointed optimized configs with reproducible metrics. Non-goals: building a new UI for training, adding new model providers, or redesigning dataset/evaluator authoring.
@@ -48,7 +48,7 @@ Goals: support runtime `RunnableConfig` across API/SDK runs; deliver an Agentens
   - Behavior: run workflow against dataset, collect per-case metrics, aggregate summary, and return evaluation-only outputs.
   - Support streaming/periodic progress updates and error surfacing per case.
 - **P0: AgentensorNode - Training mode**
-  - Behavior: optimize prompts defined in `RunnableConfig` (trainable prompts declared as `TextTensor` entries, referenced by agent nodes via config paths, and resolved via Orcheo's `{{path.to.value}}` interpolation) using gradient-free/optimizer loop inspired by `https://github.com/ShaojieJiang/agentensor/blob/main/examples/train.py`.
+  - Behavior: optimize prompts defined in `RunnableConfig` (trainable prompts declared as `TextTensor` entries, referenced by agent nodes via config paths, and resolved via Orcheo's `{{path.to.value}}` interpolation) using gradient-free/optimizer loop inspired by `https://github.com/AI-Colleagues/agentensor/blob/main/examples/train.py`.
   - Emit checkpointed optimized configs and corresponding evaluation metrics at configured intervals.
   - Return the best-performing config plus final evaluation summary; allow opt-out for certain nodes/prompts.
 - **P1: Tooling and ergonomics**

@@ -1,7 +1,7 @@
 # Orcheo
 
-[![CI](https://github.com/ShaojieJiang/orcheo/actions/workflows/ci.yml/badge.svg?event=push)](https://github.com/ShaojieJiang/orcheo/actions/workflows/ci.yml?query=branch%3Amain)
-[![Coverage](https://coverage-badge.samuelcolvin.workers.dev/ShaojieJiang/orcheo.svg)](https://coverage-badge.samuelcolvin.workers.dev/redirect/ShaojieJiang/orcheo)
+[![CI](https://github.com/AI-Colleagues/orcheo/actions/workflows/ci.yml/badge.svg?event=push)](https://github.com/AI-Colleagues/orcheo/actions/workflows/ci.yml?query=branch%3Amain)
+[![Coverage](https://coverage-badge.samuelcolvin.workers.dev/AI-Colleagues/orcheo.svg)](https://coverage-badge.samuelcolvin.workers.dev/redirect/AI-Colleagues/orcheo)
 [![PyPI - Core](https://img.shields.io/pypi/v/orcheo.svg?logo=python&label=core)](https://pypi.org/project/orcheo/)
 [![PyPI - Backend](https://img.shields.io/pypi/v/orcheo-backend.svg?logo=python&label=backend)](https://pypi.org/project/orcheo-backend/)
 [![PyPI - SDK](https://img.shields.io/pypi/v/orcheo-sdk.svg?logo=python&label=sdk)](https://pypi.org/project/orcheo-sdk/)
@@ -15,7 +15,7 @@ Orcheo is a workflow orchestration platform designed for vibe coding — AI codi
 
 ## Why Orcheo?
 
-- **Vibe-coding-first**: Already using Claude Code, Codex CLI, or Cursor? You **don't** need to learn Orcheo. Install the [agent skill](https://github.com/ShaojieJiang/agent-skills) and let your AI agent handle setup, workflow creation, and deployment.
+- **Vibe-coding-first**: Already using Claude Code, Codex CLI, or Cursor? You **don't** need to learn Orcheo. Install the [agent skill](https://github.com/AI-Colleagues/agent-skills) and let your AI agent handle setup, workflow creation, and deployment.
 - **Python-native**: Workflows are Python code powered by LangGraph — no proprietary DSL to learn.
 - **CLI-first**: Manage everything via the `orcheo` CLI (or `horcheo` for human-readable output) — install, configure, deploy, and run workflows from the terminal. The GUI is optional.
 
@@ -69,7 +69,7 @@ The Agent Skill flow remains a strong option for workflow authoring with coding 
 
 ### 1. Install the Orcheo Agent Skill
 
-Add the [Orcheo agent skill](https://github.com/ShaojieJiang/agent-skills) to your AI coding agent (Claude Code, Cursor, etc.) by following the installation instructions in the repo.
+Add the [Orcheo agent skill](https://github.com/AI-Colleagues/agent-skills) to your AI coding agent (Claude Code, Cursor, etc.) by following the installation instructions in the repo.
 
 ### 2. Let Your Agent Do the Work
 
@@ -116,4 +116,4 @@ That's it! Your agent handles the complexity while you focus on describing what 
 We welcome contributions from the community:
 
 - **Share your extensions**: Plugins, workflows, and integrations that extend Orcheo's capabilities. See the [Plugin Tutorial](plugin_tutorial.md) to get started and the [Plugin Reference](custom_nodes_and_tools.md) for the full API.
-- **How to contribute**: Open an [issue](https://github.com/ShaojieJiang/orcheo/issues), submit a [pull request](https://github.com/ShaojieJiang/orcheo/pulls), or start a [discussion](https://github.com/ShaojieJiang/orcheo/discussions). You can also publish and share your extensions independently for others to install.
+- **How to contribute**: Open an [issue](https://github.com/AI-Colleagues/orcheo/issues), submit a [pull request](https://github.com/AI-Colleagues/orcheo/pulls), or start a [discussion](https://github.com/AI-Colleagues/orcheo/discussions). You can also publish and share your extensions independently for others to install.

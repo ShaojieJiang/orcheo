@@ -138,7 +138,7 @@ We encourage you to:
 ## Feedback and Support
 
 We welcome feedback and contributions! For issues or questions:
-- GitHub Issues: [github.com/ShaojieJiang/orcheo/issues](https://github.com/ShaojieJiang/orcheo/issues)
+- GitHub Issues: [github.com/AI-Colleagues/orcheo/issues](https://github.com/AI-Colleagues/orcheo/issues)
 - Documentation: See individual demo READMEs
 
 ---
