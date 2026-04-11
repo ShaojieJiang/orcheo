@@ -17,7 +17,7 @@ description = "Agent prompt tensors, modules, and optimizers for Orcheo workflow
 name = "agentensor"
 readme = "README.md"
 requires-python = ">=3.12"
-version = "0.1.1"
+version = "0.1.2"
 
 [project.optional-dependencies]
 dev = [
