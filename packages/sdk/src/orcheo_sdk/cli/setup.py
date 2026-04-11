@@ -25,14 +25,14 @@ from rich.console import Console
 AuthMode = Literal["api-key", "oauth"]
 SetupMode = Literal["install", "upgrade"]
 _STACK_ASSET_BASE_URL = (
-    "https://raw.githubusercontent.com/ShaojieJiang/orcheo/main/deploy/stack"
+    "https://raw.githubusercontent.com/AI-Colleagues/orcheo/main/deploy/stack"
 )
 _STACK_ASSET_BASE_URL_TEMPLATE = (
-    "https://raw.githubusercontent.com/ShaojieJiang/orcheo/{ref}/deploy/stack"
+    "https://raw.githubusercontent.com/AI-Colleagues/orcheo/{ref}/deploy/stack"
 )
 _STACK_RELEASE_TAG_PREFIX = "stack-v"
-_GITHUB_TAGS_API_URL = "https://api.github.com/repos/ShaojieJiang/orcheo/tags"
-_STACK_IMAGE_REPOSITORY = "ghcr.io/shaojiejiang/orcheo-stack"
+_GITHUB_TAGS_API_URL = "https://api.github.com/repos/AI-Colleagues/orcheo/tags"
+_STACK_IMAGE_REPOSITORY = "ghcr.io/AI-Colleagues/orcheo-stack"
 _STACK_ASSET_FILES = (
     "docker-compose.yml",
     "Caddyfile",

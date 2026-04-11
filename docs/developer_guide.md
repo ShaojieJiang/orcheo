@@ -31,7 +31,7 @@ Use the new import path for all new code and examples.
 
 ```bash
 # Clone the repository
-git clone https://github.com/ShaojieJiang/orcheo.git
+git clone https://github.com/AI-Colleagues/orcheo.git
 cd orcheo
 
 # Install Python dependencies

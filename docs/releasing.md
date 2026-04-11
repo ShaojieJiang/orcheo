@@ -6,7 +6,7 @@ versioned stack container image release:
 - `orcheo` – core orchestration engine (`core-v*` tags)
 - `orcheo-sdk` – Python SDK helpers (`sdk-v*` tags)
 - `orcheo-backend` – deployable FastAPI wrapper (`backend-v*` tags)
-- `ghcr.io/shaojiejiang/orcheo-stack` – stack runtime image (`stack-v*` tags)
+- `ghcr.io/AI-Colleagues/orcheo-stack` – stack runtime image (`stack-v*` tags)
 
 The `build-and-release` and `stack-release` jobs inside
 `.github/workflows/ci.yml` publish the matching package/image whenever a tag
@@ -43,8 +43,8 @@ cut a release.
    uv build --package <package-name>
    ```
    When the plugin ecosystem changes, also verify:
-   - `orcheo plugin install "git+https://github.com/ShaojieJiang/orcheo-plugin-wecom-listener.git"`
-   - `orcheo plugin install "git+https://github.com/ShaojieJiang/orcheo-plugin-lark-listener.git"`
+   - `orcheo plugin install "git+https://github.com/AI-Colleagues/orcheo-plugin-wecom-listener.git"`
+   - `orcheo plugin install "git+https://github.com/AI-Colleagues/orcheo-plugin-lark-listener.git"`
    - successful validation of the shared Canvas template
      `template-wecom-lark-shared-listener`
    - plugin edge compatibility and legacy alias coverage remain green
@@ -61,8 +61,8 @@ cut a release.
 
 CI automatically runs checks, then executes `build-and-release` for Python tags
 or `stack-release` for stack tags. The stack release job publishes
-`ghcr.io/shaojiejiang/orcheo-stack:<version>` and
-`ghcr.io/shaojiejiang/orcheo-stack:latest`.
+`ghcr.io/AI-Colleagues/orcheo-stack:<version>` and
+`ghcr.io/AI-Colleagues/orcheo-stack:latest`.
 
 ## Package-specific Notes
 ### orcheo (core)

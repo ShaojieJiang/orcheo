@@ -388,7 +388,7 @@ def test_plugin_install_git_ref_targets_stack_runtime(
     compose_file = stack_dir / "docker-compose.yml"
     compose_file.write_text("services: {}\n", encoding="utf-8")
 
-    git_ref = "git+https://github.com/ShaojieJiang/orcheo-plugin-wecom-listener.git"
+    git_ref = "git+https://github.com/AI-Colleagues/orcheo-plugin-wecom-listener.git"
     executed: list[list[str]] = []
     responses = iter(
         [

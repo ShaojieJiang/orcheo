@@ -41,9 +41,9 @@ docs = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/ShaojieJiang/agentensor"
-Issues = "https://github.com/ShaojieJiang/agentensor/issues"
-Source = "https://github.com/ShaojieJiang/agentensor"
+Homepage = "https://github.com/AI-Colleagues/agentensor"
+Issues = "https://github.com/AI-Colleagues/agentensor/issues"
+Source = "https://github.com/AI-Colleagues/agentensor"
 
 [tool.coverage.report]
 exclude_lines = [

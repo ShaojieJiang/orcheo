@@ -1,8 +1,8 @@
 site_name: Orcheo
 site_description: Workflow orchestration platform designed for vibe coding
 site_url: https://orcheo.readthedocs.io
-repo_url: https://github.com/ShaojieJiang/orcheo
-repo_name: ShaojieJiang/orcheo
+repo_url: https://github.com/AI-Colleagues/orcheo
+repo_name: AI-Colleagues/orcheo
 
 theme:
   name: material

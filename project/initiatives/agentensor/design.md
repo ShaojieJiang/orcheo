@@ -13,7 +13,7 @@
 
 This feature enables Orcheo workflows to accept per-run `langchain_core.runnables.RunnableConfig` payloads so authors can tune tracing, concurrency, callbacks, and metadata without code edits. The runtime must validate and propagate the config across LangGraph execution while preserving defaults and observability guarantees.
 
-We also introduce an AgentensorNode inspired by `https://github.com/ShaojieJiang/agentensor/blob/main/examples/train.py`. It runs compiled workflows against evaluation datasets and evaluator functions in two modes: evaluation-only (benchmarking) and training (prompt optimization with checkpointed configs). The node standardizes experiment orchestration, produces reproducible metrics, and returns optimized runnable configs that can be reused in subsequent runs.
+We also introduce an AgentensorNode inspired by `https://github.com/AI-Colleagues/agentensor/blob/main/examples/train.py`. It runs compiled workflows against evaluation datasets and evaluator functions in two modes: evaluation-only (benchmarking) and training (prompt optimization with checkpointed configs). The node standardizes experiment orchestration, produces reproducible metrics, and returns optimized runnable configs that can be reused in subsequent runs.
 
 Key goals: runtime compatibility with LangChain config schema, reproducible evaluations, controlled training loops with safe resource usage, and artifact persistence (metrics, checkpoints).
 

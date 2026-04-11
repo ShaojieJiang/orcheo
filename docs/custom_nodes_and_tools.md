@@ -13,8 +13,8 @@ the same component set.
 Install a plugin from a package name, local path, wheel, or Git URL:
 
 ```bash
-orcheo plugin install "git+https://github.com/ShaojieJiang/orcheo-plugin-wecom-listener.git"
-orcheo plugin install "git+https://github.com/ShaojieJiang/orcheo-plugin-lark-listener.git"
+orcheo plugin install "git+https://github.com/AI-Colleagues/orcheo-plugin-wecom-listener.git"
+orcheo plugin install "git+https://github.com/AI-Colleagues/orcheo-plugin-lark-listener.git"
 ```
 
 Inspect or manage installed plugins:
@@ -223,8 +223,8 @@ Adapters should:
 Two reference listener plugins are available as standalone repositories and
 prove the v1 listener-plugin contract end to end:
 
-- [orcheo-plugin-wecom-listener](https://github.com/ShaojieJiang/orcheo-plugin-wecom-listener)
-- [orcheo-plugin-lark-listener](https://github.com/ShaojieJiang/orcheo-plugin-lark-listener)
+- [orcheo-plugin-wecom-listener](https://github.com/AI-Colleagues/orcheo-plugin-wecom-listener)
+- [orcheo-plugin-lark-listener](https://github.com/AI-Colleagues/orcheo-plugin-lark-listener)
 
 They:
 
