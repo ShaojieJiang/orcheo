@@ -72,6 +72,9 @@ async def create_workflow_run(
         ) from exc
 
 
+_DEFAULT_RUNS_LIMIT = 50
+
+
 @router.get(
     "/workflows/{workflow_ref}/runs",
     response_model=list[WorkflowRun],
@@ -79,11 +82,12 @@ async def create_workflow_run(
 async def list_workflow_runs(
     workflow_ref: str,
     repository: RepositoryDep,
+    limit: int = Query(_DEFAULT_RUNS_LIMIT, ge=1, le=200),
 ) -> list[WorkflowRun]:
-    """List runs for a given workflow."""
+    """List runs for a given workflow (most recent first)."""
     workflow_uuid = await resolve_workflow_ref_id(repository, workflow_ref)
     try:
-        return await repository.list_runs_for_workflow(workflow_uuid)
+        return await repository.list_runs_for_workflow(workflow_uuid, limit=limit)
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
 

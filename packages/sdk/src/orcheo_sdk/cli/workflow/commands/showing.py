@@ -62,7 +62,9 @@ def show_workflow(
     runs, runs_cached, runs_stale = load_with_cache(
         state,
         f"workflow:{workflow_id}:runs",
-        lambda: state.client.get(f"/api/workflows/{workflow_id}/runs"),
+        lambda: state.client.get(
+            f"/api/workflows/{workflow_id}/runs", params={"limit": 5}
+        ),
     )
     if runs_cached:
         _cache_notice(state, f"workflow {workflow_id} runs", runs_stale)

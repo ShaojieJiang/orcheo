@@ -85,7 +85,7 @@ def show_workflow_data(
     recent_runs: list[dict[str, Any]] = []
     if include_runs:
         if runs is None:
-            runs = client.get(f"/api/workflows/{workflow_id}/runs")
+            runs = client.get(f"/api/workflows/{workflow_id}/runs", params={"limit": 5})
         if runs:
             recent_runs = sorted(
                 runs,
