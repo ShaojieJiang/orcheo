@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import datetime
+from collections.abc import Iterable
 from email.utils import parsedate_to_datetime
 from typing import Any
 from xml.etree import ElementTree
@@ -44,19 +45,31 @@ class RSSNode(TaskNode):
         description="HTTP timeout in seconds per feed",
     )
 
-    @field_validator("sources", mode="before")
     @classmethod
-    def _normalize_sources(cls, value: list[Any] | str) -> list[str]:
-        """Normalize a single feed URL or nested lists into a flat list of sources."""
+    def _flatten_sources(cls, value: str | Iterable[Any]) -> list[str]:
+        """Flatten sources into a list of URL strings.
+
+        Handles a bare string, a flat list, nested lists, or other
+        iterables (tuples, sets) that ``resolved_for_run`` may produce
+        because ``model_copy`` bypasses Pydantic field validators.
+        """
         if isinstance(value, str):
             return [value]
         flat: list[str] = []
         for item in value:
-            if isinstance(item, list):
-                flat.extend(item)
-            else:
+            if isinstance(item, str):
                 flat.append(item)
+            elif isinstance(item, Iterable):
+                flat.extend(str(i) for i in item)
+            else:
+                flat.append(str(item))
         return flat
+
+    @field_validator("sources", mode="before")
+    @classmethod
+    def _normalize_sources(cls, value: list[str | list[str]] | str) -> list[str]:
+        """Normalize a single feed URL or nested lists into a flat list of sources."""
+        return cls._flatten_sources(value)
 
     # ------------------------------------------------------------------
     # XML helpers
@@ -214,15 +227,10 @@ class RSSNode(TaskNode):
             follow_redirects=True,
             headers=RSS_REQUEST_HEADERS,
         ) as client:
-            # Normalize in case template resolution produced a bare string
-            # or nested lists (model_copy in resolved_for_run skips validators).
-            sources = self.sources if isinstance(self.sources, list) else [self.sources]
-            flat_sources: list[str] = []
-            for src in sources:
-                if isinstance(src, list):
-                    flat_sources.extend(src)
-                else:
-                    flat_sources.append(src)
+            # Re-flatten because resolved_for_run() uses model_copy(update=…)
+            # which bypasses Pydantic field validators, so self.sources may
+            # be a bare string, tuple, set, or nested list after templating.
+            flat_sources = self._flatten_sources(self.sources)
             for url in flat_sources:
                 docs, error = await self._fetch_source(client, url, now_iso)
                 documents.extend(docs)
