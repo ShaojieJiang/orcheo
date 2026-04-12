@@ -896,6 +896,31 @@ async def test_postgres_repository_list_runs_for_workflow(
 
 
 @pytest.mark.asyncio
+async def test_postgres_repository_list_runs_with_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Listing runs with a limit appends LIMIT clause to the query."""
+    workflow_id = uuid4()
+    version_id = uuid4()
+    run_id = uuid4()
+
+    responses: list[Any] = [
+        {"row": {"payload": _workflow_payload(workflow_id)}},
+        {
+            "rows": [
+                {"payload": _run_payload(run_id, version_id)},
+            ]
+        },
+    ]
+    repo = make_repository(monkeypatch, responses)
+
+    runs = await repo.list_runs_for_workflow(workflow_id, limit=1)
+
+    assert len(runs) == 1
+    assert runs[0].id == run_id
+
+
+@pytest.mark.asyncio
 async def test_postgres_repository_list_runs_with_json_string_payload(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

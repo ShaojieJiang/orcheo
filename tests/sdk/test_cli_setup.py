@@ -593,6 +593,41 @@ def test_compose_profile_args_missing_env_file(tmp_path: Path) -> None:
     assert setup._compose_profile_args(stack_dir) == []
 
 
+def test_compose_profile_args_no_profiles_key(tmp_path: Path) -> None:
+    stack_dir = tmp_path / "stack"
+    stack_dir.mkdir()
+    (stack_dir / ".env").write_text("OTHER=value\n", encoding="utf-8")
+    assert setup._compose_profile_args(stack_dir) == []
+
+
+def test_compose_profile_args_with_profiles(tmp_path: Path) -> None:
+    stack_dir = tmp_path / "stack"
+    stack_dir.mkdir()
+    (stack_dir / ".env").write_text(
+        "COMPOSE_PROFILES=public-ingress,local-access\n", encoding="utf-8"
+    )
+    assert setup._compose_profile_args(stack_dir) == [
+        "--profile",
+        "public-ingress",
+        "--profile",
+        "local-access",
+    ]
+
+
+def test_compose_profile_args_blank_entries_ignored(tmp_path: Path) -> None:
+    stack_dir = tmp_path / "stack"
+    stack_dir.mkdir()
+    (stack_dir / ".env").write_text(
+        "COMPOSE_PROFILES=public-ingress, ,local-access\n", encoding="utf-8"
+    )
+    assert setup._compose_profile_args(stack_dir) == [
+        "--profile",
+        "public-ingress",
+        "--profile",
+        "local-access",
+    ]
+
+
 def test_read_env_value_and_warn(tmp_path):
     env_file = tmp_path / ".env"
     env_file.write_text("ORCHEO_API_URL=http://\nVITE_ORCHEO_CHATKIT_DOMAIN_KEY=\n")
