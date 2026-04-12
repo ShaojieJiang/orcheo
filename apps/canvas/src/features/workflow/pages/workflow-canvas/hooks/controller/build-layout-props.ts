@@ -94,7 +94,6 @@ export function buildWorkflowLayoutProps(
   };
 
   const traceProps: TraceTabContentProps = {
-    status: execution.trace.status,
     error: execution.trace.error,
     viewerData: execution.trace.viewerData,
     activeViewer: execution.trace.activeTraceViewer,

@@ -49,7 +49,6 @@ const sampleViewerData2: TraceViewerData = {
 const createProps = (
   overrides: Partial<TraceTabContentProps> = {},
 ): TraceTabContentProps => ({
-  status: "ready",
   error: undefined,
   viewerData: [sampleViewerData],
   activeViewer: sampleViewerData,
@@ -88,20 +87,19 @@ describe("TraceTabContent", () => {
     traceViewerMock.mockReset();
   });
 
-  it("shows loading skeleton when trace is loading", () => {
-    const { container } = render(
+  it("shows empty state when there is no data", () => {
+    render(
       <TraceTabContent
         {...createProps({
-          status: "loading",
           viewerData: [],
           activeViewer: undefined,
         })}
       />,
     );
 
-    expect(container.querySelectorAll(".animate-pulse").length).toBeGreaterThan(
-      0,
-    );
+    expect(
+      screen.getByText(/trace data will appear here/i),
+    ).toBeInTheDocument();
     expect(screen.queryByTestId("trace-viewer")).not.toBeInTheDocument();
   });
 
@@ -109,7 +107,6 @@ describe("TraceTabContent", () => {
     render(
       <TraceTabContent
         {...createProps({
-          status: "error",
           error: "Server unavailable",
           viewerData: [],
           activeViewer: undefined,

@@ -6,15 +6,12 @@ import type { TraceSpan } from "@evilmartians/agent-prism-types";
 
 import { Alert, AlertDescription, AlertTitle } from "@/design-system/ui/alert";
 import { Button } from "@/design-system/ui/button";
-import { Skeleton } from "@/design-system/ui/skeleton";
 import type { TraceViewerData } from "@features/workflow/components/trace/agent-prism";
 import { TraceViewer } from "@features/workflow/components/trace/agent-prism";
 import { deriveThreadStitchedViewerDataList } from "@features/workflow/pages/workflow-canvas/helpers/trace";
-import type { TraceEntryStatus } from "@features/workflow/pages/workflow-canvas/helpers/trace";
 import type { TraceSpanMetadata } from "@features/workflow/pages/workflow-canvas/helpers/trace";
 
 export interface TraceTabContentProps {
-  status: TraceEntryStatus;
   error?: string;
   viewerData: TraceViewerData[];
   activeViewer?: TraceViewerData;
@@ -58,7 +55,6 @@ const renderArtifactActions = (span: TraceSpan) => {
 };
 
 export function TraceTabContent({
-  status,
   error,
   viewerData,
   activeViewer,
@@ -116,7 +112,6 @@ export function TraceTabContent({
     return displayedViewerData[0]?.traceRecord.id;
   }, [activeViewer, displayedViewerData, isStitchedTimeline]);
 
-  const isLoading = status === "loading" && !activeViewer;
   const hasData = displayedViewerData.length > 0;
 
   return (
@@ -160,14 +155,7 @@ export function TraceTabContent({
         </Alert>
       )}
 
-      {isLoading && (
-        <div className="space-y-4">
-          <Skeleton className="h-12 w-full" />
-          <Skeleton className="h-72 w-full" />
-        </div>
-      )}
-
-      {!isLoading && !hasData && !error && (
+      {!hasData && !error && (
         <div className="flex flex-1 items-center justify-center rounded-md border border-dashed border-border text-sm text-muted-foreground">
           Trace data will appear here once spans are recorded.
         </div>
