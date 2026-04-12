@@ -17,7 +17,7 @@ def test_show_workflow_data_fetches_workflow_versions_and_runs(
         for index in range(1, 8)
     ]
 
-    def fake_get(path: str) -> object:
+    def fake_get(path: str, **kwargs: object) -> object:
         calls.append(path)
         if path == "/api/workflows/wf-1":
             return workflow

@@ -38,20 +38,24 @@ class WorkflowRunMixin(SqlitePersistenceMixin):
             )
             return run.model_copy(deep=True)
 
-    async def list_runs_for_workflow(self, workflow_id: UUID) -> list[WorkflowRun]:
+    async def list_runs_for_workflow(
+        self, workflow_id: UUID, *, limit: int | None = None
+    ) -> list[WorkflowRun]:
         await self._ensure_initialized()
         async with self._lock:
             await self._get_workflow_locked(workflow_id)
+            query = """
+                SELECT payload
+                  FROM workflow_runs
+                 WHERE workflow_id = ?
+              ORDER BY created_at DESC
+            """
+            params: list[Any] = [str(workflow_id)]
+            if limit is not None:
+                query += " LIMIT ?"
+                params.append(limit)
             async with self._connection() as conn:
-                cursor = await conn.execute(
-                    """
-                    SELECT payload
-                      FROM workflow_runs
-                     WHERE workflow_id = ?
-                  ORDER BY created_at ASC
-                    """,
-                    (str(workflow_id),),
-                )
+                cursor = await conn.execute(query, tuple(params))
                 rows = await cursor.fetchall()
             return [
                 WorkflowRun.model_validate_json(row["payload"]).model_copy(deep=True)

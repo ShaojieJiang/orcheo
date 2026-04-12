@@ -442,7 +442,7 @@ def test_build_env_updates(monkeypatch):
     assert updates["ORCHEO_CORS_ALLOW_ORIGINS"] == (
         "http://localhost:5173,http://127.0.0.1:5173"
     )
-    assert updates["COMPOSE_PROFILES"] == "local-access"
+    assert updates["COMPOSE_PROFILES"] == ""
     assert updates["VITE_ORCHEO_CHATKIT_DOMAIN_KEY"] == "domain"
     assert updates["ORCHEO_STACK_IMAGE"] == f"{setup._STACK_IMAGE_REPOSITORY}:2.0"
     assert defaults["ORCHEO_POSTGRES_PASSWORD"] == "safe"
@@ -591,6 +591,41 @@ def test_compose_profile_args_missing_env_file(tmp_path: Path) -> None:
     stack_dir = tmp_path / "stack"
     stack_dir.mkdir()
     assert setup._compose_profile_args(stack_dir) == []
+
+
+def test_compose_profile_args_no_profiles_key(tmp_path: Path) -> None:
+    stack_dir = tmp_path / "stack"
+    stack_dir.mkdir()
+    (stack_dir / ".env").write_text("OTHER=value\n", encoding="utf-8")
+    assert setup._compose_profile_args(stack_dir) == []
+
+
+def test_compose_profile_args_with_profiles(tmp_path: Path) -> None:
+    stack_dir = tmp_path / "stack"
+    stack_dir.mkdir()
+    (stack_dir / ".env").write_text(
+        "COMPOSE_PROFILES=public-ingress,local-access\n", encoding="utf-8"
+    )
+    assert setup._compose_profile_args(stack_dir) == [
+        "--profile",
+        "public-ingress",
+        "--profile",
+        "local-access",
+    ]
+
+
+def test_compose_profile_args_blank_entries_ignored(tmp_path: Path) -> None:
+    stack_dir = tmp_path / "stack"
+    stack_dir.mkdir()
+    (stack_dir / ".env").write_text(
+        "COMPOSE_PROFILES=public-ingress, ,local-access\n", encoding="utf-8"
+    )
+    assert setup._compose_profile_args(stack_dir) == [
+        "--profile",
+        "public-ingress",
+        "--profile",
+        "local-access",
+    ]
 
 
 def test_read_env_value_and_warn(tmp_path):

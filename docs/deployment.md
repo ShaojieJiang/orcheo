@@ -83,8 +83,7 @@ This is the standard public self-hosted recipe for Orcheo on a reachable Linux h
    - `https://orcheo.example.com/api/...` -> backend HTTP routes
    - `wss://orcheo.example.com/ws/...` -> backend WebSocket routes
 4. **Inspect the generated stack config when needed**
-   - `COMPOSE_PROFILES=public-ingress,local-access` keeps localhost access proxies for `8000` and `5173`.
-   - `COMPOSE_PROFILES=public-ingress` disables those localhost access ports so traffic only goes through Caddy.
+   - `COMPOSE_PROFILES=public-ingress` enables Caddy TLS ingress. Backend and Canvas remain accessible on their direct localhost ports (`8000` and `5173` by default).
    - `ORCHEO_CADDY_BACKEND_UPSTREAMS` controls the backend upstream pool for `/api/*` and `/ws/*`.
 5. **Verify the public origin**
    ```bash
@@ -115,19 +114,18 @@ Bundled Caddy is appropriate for standard self-hosted installs and moderate scal
 
 ## Cloudflare Tunnel Or Similar Split-Origin Tunnel
 
-Use this recipe when the host is not directly reachable or when you intentionally keep Canvas and backend on separate public hostnames behind a tunnel. In this topology, bundled Caddy stays off and the stack continues to publish the localhost access proxies that `cloudflared` forwards to.
+Use this recipe when the host is not directly reachable or when you intentionally keep Canvas and backend on separate public hostnames behind a tunnel. In this topology, bundled Caddy stays off and the tunnel forwards to the direct localhost ports published by backend and Canvas.
 
 1. **Install the stack without bundled public ingress**
    ```bash
    orcheo install --start-stack
    ```
-2. **Point your tunnel routes at the local access proxies**
+2. **Point your tunnel routes at the direct localhost ports**
    - `https://orcheo.example.com` -> `http://localhost:8000`
    - `https://orcheo-canvas.example.com` -> `http://localhost:5173`
 3. **Set the generated stack env to the split-origin contract**
    ```env
    ORCHEO_PUBLIC_INGRESS_ENABLED=false
-   COMPOSE_PROFILES=local-access
    ORCHEO_API_URL=https://orcheo.example.com
    VITE_ORCHEO_BACKEND_URL=https://orcheo.example.com
    ORCHEO_CORS_ALLOW_ORIGINS=https://orcheo-canvas.example.com
@@ -209,6 +207,6 @@ kubectl apply -k deploy/kubernetes
 - **Scaling**: The FastAPI app is stateless. Scale horizontally by adding replicas while pointing them at the same checkpoint database. With bundled Caddy, keep replica pools limited to one logical deployment that shares Postgres and Redis.
 - **Backups**: Schedule database backups (pg_dump or managed snapshots) to protect workflow history and run states.
 
-Use Cloudflare Tunnel when the host is not directly reachable from the internet, or when you intentionally want tunnel-managed public hostnames in front of the localhost access proxies. For reachable hosts with direct inbound ports and one shared origin, bundled Caddy is the simpler default.
+Use Cloudflare Tunnel when the host is not directly reachable from the internet, or when you intentionally want tunnel-managed public hostnames in front of the direct localhost ports. For reachable hosts with direct inbound ports and one shared origin, bundled Caddy is the simpler default.
 
 These recipes will evolve as additional milestones introduce credential vaulting, trigger services, and observability pipelines.

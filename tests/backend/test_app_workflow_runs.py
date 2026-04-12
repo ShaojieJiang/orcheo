@@ -205,7 +205,7 @@ async def test_list_workflow_runs_success() -> None:
             del workflow_ref, include_archived
             return workflow_id
 
-        async def list_runs_for_workflow(self, wf_id):
+        async def list_runs_for_workflow(self, wf_id, *, limit=None):
             return [
                 WorkflowRun(
                     id=run1_id,
@@ -225,7 +225,7 @@ async def test_list_workflow_runs_success() -> None:
                 ),
             ]
 
-    result = await list_workflow_runs(str(workflow_id), Repository())
+    result = await list_workflow_runs(str(workflow_id), Repository(), limit=50)
 
     assert len(result) == 2
     assert result[0].id == run1_id
@@ -243,11 +243,11 @@ async def test_list_workflow_runs_not_found() -> None:
             del workflow_ref, include_archived
             return workflow_id
 
-        async def list_runs_for_workflow(self, wf_id):
+        async def list_runs_for_workflow(self, wf_id, *, limit=None):
             raise WorkflowNotFoundError("not found")
 
     with pytest.raises(HTTPException) as exc_info:
-        await list_workflow_runs(str(workflow_id), Repository())
+        await list_workflow_runs(str(workflow_id), Repository(), limit=50)
 
     assert exc_info.value.status_code == 404
 

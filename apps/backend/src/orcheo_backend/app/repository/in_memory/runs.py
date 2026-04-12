@@ -42,8 +42,10 @@ class WorkflowRunMixin(InMemoryRepositoryState):
             )
             return run.model_copy(deep=True)
 
-    async def list_runs_for_workflow(self, workflow_id: UUID) -> list[WorkflowRun]:
-        """Return all runs associated with the provided workflow."""
+    async def list_runs_for_workflow(
+        self, workflow_id: UUID, *, limit: int | None = None
+    ) -> list[WorkflowRun]:
+        """Return runs associated with the provided workflow (most recent first)."""
         async with self._lock:
             if workflow_id not in self._workflows:
                 raise WorkflowNotFoundError(str(workflow_id))
@@ -53,7 +55,14 @@ class WorkflowRunMixin(InMemoryRepositoryState):
                 for version_id in version_ids
                 for run_id in self._version_runs.get(version_id, [])
             ]
-            return [self._runs[run_id].model_copy(deep=True) for run_id in run_ids]
+            runs = sorted(
+                (self._runs[run_id].model_copy(deep=True) for run_id in run_ids),
+                key=lambda r: r.created_at,
+                reverse=True,
+            )
+            if limit is not None:
+                runs = runs[:limit]
+            return runs
 
     async def get_run(self, run_id: UUID) -> WorkflowRun:
         """Fetch a run by its identifier."""

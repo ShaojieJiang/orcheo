@@ -156,21 +156,20 @@ Note: `ORCHEO_REPOSITORY_BACKEND=inmemory` stores runs in-process only and does 
 | `ORCHEO_DISABLE_UPDATE_CHECK` | _unset_ | Boolean (`1/0`, `true/false`, `yes/no`, `on/off`) | Disables startup update reminders in the CLI (`cli/main.py`). |
 | `ORCHEO_STACK_DIR` | `~/.orcheo/stack` | Directory path | Target directory for `orcheo install` stack assets and generated `.env` updates (`cli/setup.py`). |
 | `ORCHEO_STACK_VERSION` | _unset_ | Stack release version string (for example `0.1.0`) | Pins `orcheo install` to a specific `stack-v*` release when `--stack-version` is not provided (`cli/setup.py`). |
-| `ORCHEO_STACK_IMAGE` | `ghcr.io/AI-Colleagues/orcheo-stack:latest` | Container image reference | Runtime image used by `deploy/stack/docker-compose.yml` for backend/worker/celery-beat services. `orcheo install --stack-version` sets this value in `.env` (`cli/setup.py`). |
+| `ORCHEO_STACK_IMAGE` | `ghcr.io/ai-colleagues/orcheo-stack:latest` | Container image reference | Runtime image used by `deploy/stack/docker-compose.yml` for backend/worker/celery-beat services. `orcheo install --stack-version` sets this value in `.env` (`cli/setup.py`). |
 | `ORCHEO_POSTGRES_PASSWORD` | _auto-generated on install_ | Non-empty string | PostgreSQL password written to stack `.env` by `orcheo install` and consumed by `deploy/stack/docker-compose.yml` to configure the Postgres service and backend DSN. |
 | `ORCHEO_STACK_ASSET_BASE_URL` | _unset_ | HTTP(S) URL | Optional custom mirror base URL for per-file stack asset downloads. When set, `orcheo install` skips GitHub tag discovery and downloads stack assets from this mirror (`cli/setup.py`). |
 | `ORCHEO_SETUP_HEALTH_POLL_TIMEOUT_SECONDS` | `60` | Integer ≥ 0 | Timeout window used by `orcheo install` when waiting for `docker compose` backend health checks (`cli/setup.py`). |
-| `ORCHEO_PUBLIC_INGRESS_ENABLED` | `false` | Boolean (`1/0`, `true/false`, `yes/no`, `on/off`) | Enables the bundled Caddy ingress profile written by `orcheo install`. When false, the stack stays in the localhost-friendly local-access profile. |
+| `ORCHEO_PUBLIC_INGRESS_ENABLED` | `false` | Boolean (`1/0`, `true/false`, `yes/no`, `on/off`) | Enables the bundled Caddy ingress profile written by `orcheo install`. When false, backend and canvas are accessible only via their direct localhost port bindings. |
 | `ORCHEO_PUBLIC_HOST` | _unset_ | Hostname | Public hostname served by bundled Caddy. Required when `ORCHEO_PUBLIC_INGRESS_ENABLED=true`. |
-| `ORCHEO_PUBLISH_LOCAL_PORTS` | `true` | Boolean (`1/0`, `true/false`, `yes/no`, `on/off`) | Keeps localhost backend and Canvas access proxies published while using the selected stack mode. In public-ingress mode, setting this to false leaves Caddy as the only browser entrypoint. |
-| `COMPOSE_PROFILES` | `local-access` | Comma-separated Docker Compose profile names | Profiles activated by `orcheo install` and `orcheo stack`. Typical values are `local-access`, `public-ingress`, or `public-ingress,local-access`. |
+| `COMPOSE_PROFILES` | _empty_ | Comma-separated Docker Compose profile names | Profiles activated by `orcheo install` and `orcheo stack`. Set to `public-ingress` to enable bundled Caddy TLS ingress. |
 | `ORCHEO_CADDY_SITE_ADDRESS` | _unset_ | Hostname or Caddy site address | Site address consumed by `deploy/stack/Caddyfile`. Usually the same value as `ORCHEO_PUBLIC_HOST`. |
 | `ORCHEO_CADDY_BACKEND_UPSTREAMS` | `backend:8000` | Space-delimited `host:port` upstream list | Backend upstream pool used by bundled Caddy for `/api/*` and `/ws/*`. Multiple entries are for replicas of the same logical deployment only. |
 | `ORCHEO_CADDY_CANVAS_UPSTREAM` | `canvas:5173` | `host:port` | Internal Canvas upstream used by bundled Caddy for `/` and SPA routes. |
 | `ORCHEO_CADDY_HTTP_BIND` | `0.0.0.0` | IP string | Host bind address for Caddy's public port `80` in `deploy/stack/docker-compose.yml`. |
 | `ORCHEO_CADDY_HTTPS_BIND` | `0.0.0.0` | IP string | Host bind address for Caddy's public port `443` in `deploy/stack/docker-compose.yml`. |
-| `ORCHEO_BACKEND_LOCAL_PORT` | `8000` | Integer (1‑65535) | Localhost port published by the `backend-local` access proxy profile. |
-| `ORCHEO_CANVAS_LOCAL_PORT` | `5173` | Integer (1‑65535) | Localhost port published by the `canvas-local` access proxy profile. |
+| `ORCHEO_BACKEND_LOCAL_PORT` | `8000` | Integer (1‑65535) | Localhost port bound for the backend service in the stack compose file. |
+| `ORCHEO_CANVAS_LOCAL_PORT` | `5173` | Integer (1‑65535) | Localhost port bound for the Canvas service in the stack compose file. |
 | `ORCHEO_POSTGRES_LOCAL_PORT` | `5432` | Integer (1‑65535) | Localhost port bound for the bundled Postgres service in the stack compose file. |
 | `ORCHEO_REDIS_LOCAL_PORT` | `6379` | Integer (1‑65535) | Localhost port bound for the bundled Redis service in the stack compose file. |
 | `ORCHEO_AUTH_ISSUER` | _none_ | OIDC issuer URL | OAuth issuer URL for CLI browser-based login. Can also be set in a `cli.toml` profile via `auth_issuer` (`cli/auth/config.py`). |

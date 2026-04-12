@@ -71,6 +71,9 @@ async def test_run_lifecycle(repository: WorkflowRepository) -> None:
     runs = await repository.list_runs_for_workflow(workflow.id)
     assert {run.status for run in runs} == {"succeeded", "failed", "cancelled"}
 
+    limited_runs = await repository.list_runs_for_workflow(workflow.id, limit=1)
+    assert len(limited_runs) == 1
+
 
 @pytest.mark.asyncio()
 async def test_run_error_paths(repository: WorkflowRepository) -> None:

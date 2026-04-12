@@ -6,7 +6,7 @@ versioned stack container image release:
 - `orcheo` – core orchestration engine (`core-v*` tags)
 - `orcheo-sdk` – Python SDK helpers (`sdk-v*` tags)
 - `orcheo-backend` – deployable FastAPI wrapper (`backend-v*` tags)
-- `ghcr.io/AI-Colleagues/orcheo-stack` – stack runtime image (`stack-v*` tags)
+- `ghcr.io/ai-colleagues/orcheo-stack` – stack runtime image (`stack-v*` tags)
 
 The `build-and-release` and `stack-release` jobs inside
 `.github/workflows/ci.yml` publish the matching package/image whenever a tag
@@ -61,8 +61,8 @@ cut a release.
 
 CI automatically runs checks, then executes `build-and-release` for Python tags
 or `stack-release` for stack tags. The stack release job publishes
-`ghcr.io/AI-Colleagues/orcheo-stack:<version>` and
-`ghcr.io/AI-Colleagues/orcheo-stack:latest`.
+`ghcr.io/ai-colleagues/orcheo-stack:<version>` and
+`ghcr.io/ai-colleagues/orcheo-stack:latest`.
 
 ## Package-specific Notes
 ### orcheo (core)

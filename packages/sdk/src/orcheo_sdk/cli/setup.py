@@ -32,7 +32,7 @@ _STACK_ASSET_BASE_URL_TEMPLATE = (
 )
 _STACK_RELEASE_TAG_PREFIX = "stack-v"
 _GITHUB_TAGS_API_URL = "https://api.github.com/repos/AI-Colleagues/orcheo/tags"
-_STACK_IMAGE_REPOSITORY = "ghcr.io/AI-Colleagues/orcheo-stack"
+_STACK_IMAGE_REPOSITORY = "ghcr.io/ai-colleagues/orcheo-stack"
 _STACK_ASSET_FILES = (
     "docker-compose.yml",
     "Caddyfile",
@@ -1093,8 +1093,6 @@ def _compose_profiles(config: SetupConfig) -> str:
     profiles: list[str] = []
     if config.public_ingress_enabled:
         profiles.append("public-ingress")
-    if config.publish_local_ports:
-        profiles.append("local-access")
     return ",".join(profiles)
 
 

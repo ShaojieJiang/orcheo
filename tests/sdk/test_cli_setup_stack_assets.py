@@ -194,8 +194,6 @@ def test_execute_setup_bootstraps_stack_assets(
     assert commands[0] == [
         "docker",
         "compose",
-        "--profile",
-        "local-access",
         "-f",
         str(stack_dir / "docker-compose.yml"),
         "--project-directory",
@@ -205,8 +203,6 @@ def test_execute_setup_bootstraps_stack_assets(
     assert commands[1] == [
         "docker",
         "compose",
-        "--profile",
-        "local-access",
         "-f",
         str(stack_dir / "docker-compose.yml"),
         "--project-directory",
@@ -245,8 +241,6 @@ def test_execute_setup_upgrade_pulls_then_starts(
     assert commands[0] == [
         "docker",
         "compose",
-        "--profile",
-        "local-access",
         "-f",
         str(stack_dir / "docker-compose.yml"),
         "--project-directory",
@@ -256,8 +250,6 @@ def test_execute_setup_upgrade_pulls_then_starts(
     assert commands[1] == [
         "docker",
         "compose",
-        "--profile",
-        "local-access",
         "-f",
         str(stack_dir / "docker-compose.yml"),
         "--project-directory",
@@ -792,8 +784,6 @@ def test_execute_setup_uses_privileged_docker_after_autoinstall_until_shell_refr
         "sudo",
         "docker",
         "compose",
-        "--profile",
-        "local-access",
         "-f",
         str(stack_dir / "docker-compose.yml"),
         "--project-directory",
@@ -804,8 +794,6 @@ def test_execute_setup_uses_privileged_docker_after_autoinstall_until_shell_refr
         "sudo",
         "docker",
         "compose",
-        "--profile",
-        "local-access",
         "-f",
         str(stack_dir / "docker-compose.yml"),
         "--project-directory",
@@ -1300,7 +1288,7 @@ def test_setup_build_env_updates_and_warn_missing_branch(
     updates, defaults = setup_mod._build_env_updates(config)
     assert "ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN" not in updates
     assert "ORCHEO_AUTH_MODE" not in updates
-    assert updates["COMPOSE_PROFILES"] == "local-access"
+    assert updates["COMPOSE_PROFILES"] == ""
     assert updates["VITE_ORCHEO_CHATKIT_DOMAIN_KEY"] == "domain_pk_live"
     assert defaults["ORCHEO_POSTGRES_PASSWORD"]
 
@@ -1467,7 +1455,7 @@ def test_run_setup_public_ingress_derives_public_env_contract(
         "https://orcheo.example.com,http://localhost:5173,http://127.0.0.1:5173"
     )
     assert updates["VITE_ALLOWED_HOSTS"] == "localhost,127.0.0.1,orcheo.example.com"
-    assert updates["COMPOSE_PROFILES"] == "public-ingress,local-access"
+    assert updates["COMPOSE_PROFILES"] == "public-ingress"
     assert updates["ORCHEO_CADDY_SITE_ADDRESS"] == "orcheo.example.com"
 
 
@@ -1824,7 +1812,7 @@ def test_ensure_stack_assets_uses_explicit_stack_version(
 
     assert f"{setup_mod._GITHUB_TAGS_API_URL}?per_page=100" not in calls
     env_content = (stack_dir / ".env").read_text(encoding="utf-8")
-    assert "ORCHEO_STACK_IMAGE=ghcr.io/AI-Colleagues/orcheo-stack:0.5.0" in env_content
+    assert "ORCHEO_STACK_IMAGE=ghcr.io/ai-colleagues/orcheo-stack:0.5.0" in env_content
 
 
 def test_ensure_stack_assets_uses_env_stack_version(
@@ -1856,7 +1844,7 @@ def test_ensure_stack_assets_uses_env_stack_version(
     )
 
     env_content = (stack_dir / ".env").read_text(encoding="utf-8")
-    assert "ORCHEO_STACK_IMAGE=ghcr.io/AI-Colleagues/orcheo-stack:0.6.1" in env_content
+    assert "ORCHEO_STACK_IMAGE=ghcr.io/ai-colleagues/orcheo-stack:0.6.1" in env_content
 
 
 def test_ensure_stack_assets_custom_base_url_forces_per_file_mode(
@@ -1893,7 +1881,7 @@ def test_ensure_stack_assets_custom_base_url_forces_per_file_mode(
     for relative_path, payload in assets.items():
         assert (stack_dir / relative_path).read_bytes() == payload
     env_content = (stack_dir / ".env").read_text(encoding="utf-8")
-    assert "ORCHEO_STACK_IMAGE=ghcr.io/AI-Colleagues/orcheo-stack:0.9.0" in env_content
+    assert "ORCHEO_STACK_IMAGE=ghcr.io/ai-colleagues/orcheo-stack:0.9.0" in env_content
 
 
 def test_resolve_stack_version_precedence(monkeypatch: pytest.MonkeyPatch) -> None:

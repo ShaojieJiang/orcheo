@@ -152,8 +152,14 @@ class WorkflowRepository(Protocol):
     ) -> WorkflowRun:
         """Create a workflow run for the specified version."""
 
-    async def list_runs_for_workflow(self, workflow_id: UUID) -> list[WorkflowRun]:
-        """Return runs associated with the given workflow."""
+    async def list_runs_for_workflow(
+        self, workflow_id: UUID, *, limit: int | None = None
+    ) -> list[WorkflowRun]:
+        """Return runs associated with the given workflow.
+
+        Results are ordered most-recent-first.  When *limit* is given only the
+        most recent *limit* runs are returned.
+        """
 
     async def get_run(self, run_id: UUID) -> WorkflowRun:
         """Return a workflow run by identifier."""
