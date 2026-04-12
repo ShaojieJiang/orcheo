@@ -1824,7 +1824,7 @@ def test_ensure_stack_assets_uses_explicit_stack_version(
 
     assert f"{setup_mod._GITHUB_TAGS_API_URL}?per_page=100" not in calls
     env_content = (stack_dir / ".env").read_text(encoding="utf-8")
-    assert "ORCHEO_STACK_IMAGE=ghcr.io/AI-Colleagues/orcheo-stack:0.5.0" in env_content
+    assert "ORCHEO_STACK_IMAGE=ghcr.io/ai-colleagues/orcheo-stack:0.5.0" in env_content
 
 
 def test_ensure_stack_assets_uses_env_stack_version(
@@ -1856,7 +1856,7 @@ def test_ensure_stack_assets_uses_env_stack_version(
     )
 
     env_content = (stack_dir / ".env").read_text(encoding="utf-8")
-    assert "ORCHEO_STACK_IMAGE=ghcr.io/AI-Colleagues/orcheo-stack:0.6.1" in env_content
+    assert "ORCHEO_STACK_IMAGE=ghcr.io/ai-colleagues/orcheo-stack:0.6.1" in env_content
 
 
 def test_ensure_stack_assets_custom_base_url_forces_per_file_mode(
@@ -1893,7 +1893,7 @@ def test_ensure_stack_assets_custom_base_url_forces_per_file_mode(
     for relative_path, payload in assets.items():
         assert (stack_dir / relative_path).read_bytes() == payload
     env_content = (stack_dir / ".env").read_text(encoding="utf-8")
-    assert "ORCHEO_STACK_IMAGE=ghcr.io/AI-Colleagues/orcheo-stack:0.9.0" in env_content
+    assert "ORCHEO_STACK_IMAGE=ghcr.io/ai-colleagues/orcheo-stack:0.9.0" in env_content
 
 
 def test_resolve_stack_version_precedence(monkeypatch: pytest.MonkeyPatch) -> None:

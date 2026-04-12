@@ -33,7 +33,7 @@ services:
       retries: 5
 
   backend:
-    image: ${ORCHEO_STACK_IMAGE:-ghcr.io/AI-Colleagues/orcheo-stack:latest}
+    image: ${ORCHEO_STACK_IMAGE:-ghcr.io/ai-colleagues/orcheo-stack:latest}
     env_file: .env
     volumes:
       - orcheo_data:/data
@@ -99,7 +99,7 @@ services:
       - backend:8000
 
   worker:
-    image: ${ORCHEO_STACK_IMAGE:-ghcr.io/AI-Colleagues/orcheo-stack:latest}
+    image: ${ORCHEO_STACK_IMAGE:-ghcr.io/ai-colleagues/orcheo-stack:latest}
     env_file: .env
     volumes:
       - orcheo_data:/data
@@ -138,7 +138,7 @@ services:
     command: python -m celery -A orcheo_backend.worker.celery_app worker --loglevel=info
 
   celery-beat:
-    image: ${ORCHEO_STACK_IMAGE:-ghcr.io/AI-Colleagues/orcheo-stack:latest}
+    image: ${ORCHEO_STACK_IMAGE:-ghcr.io/ai-colleagues/orcheo-stack:latest}
     env_file: .env
     volumes:
       - orcheo_data:/data
@@ -177,7 +177,7 @@ services:
       sh -c 'python -m celery -A orcheo_backend.worker.celery_app beat --loglevel=info -s "$$CELERY_BEAT_SCHEDULE_FILE"'
 
   canvas:
-    image: ${ORCHEO_CANVAS_IMAGE:-ghcr.io/AI-Colleagues/orcheo-canvas:latest}
+    image: ${ORCHEO_CANVAS_IMAGE:-ghcr.io/ai-colleagues/orcheo-canvas:latest}
     env_file: .env
     environment:
       VITE_ORCHEO_BACKEND_URL: ${VITE_ORCHEO_BACKEND_URL:-http://localhost:8000}
