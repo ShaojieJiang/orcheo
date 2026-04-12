@@ -1093,8 +1093,6 @@ def _compose_profiles(config: SetupConfig) -> str:
     profiles: list[str] = []
     if config.public_ingress_enabled:
         profiles.append("public-ingress")
-    if config.publish_local_ports:
-        profiles.append("local-access")
     return ",".join(profiles)
 
 

@@ -35,6 +35,8 @@ services:
   backend:
     image: ${ORCHEO_STACK_IMAGE:-ghcr.io/ai-colleagues/orcheo-stack:latest}
     env_file: .env
+    ports:
+      - "127.0.0.1:${ORCHEO_BACKEND_LOCAL_PORT:-8000}:8000"
     volumes:
       - orcheo_data:/data
       - ./chatkit_widgets:/app/examples/chatkit_widgets/widgets:ro
@@ -80,23 +82,6 @@ services:
       --host 0.0.0.0
       --port 8000
       --proxy-headers
-
-  backend-local:
-    image: caddy:2
-    profiles:
-      - local-access
-    depends_on:
-      backend:
-        condition: service_healthy
-    ports:
-      - "127.0.0.1:${ORCHEO_BACKEND_LOCAL_PORT:-8000}:8000"
-    command:
-      - caddy
-      - reverse-proxy
-      - --from
-      - :8000
-      - --to
-      - backend:8000
 
   worker:
     image: ${ORCHEO_STACK_IMAGE:-ghcr.io/ai-colleagues/orcheo-stack:latest}
@@ -179,6 +164,8 @@ services:
   canvas:
     image: ${ORCHEO_CANVAS_IMAGE:-ghcr.io/ai-colleagues/orcheo-canvas:latest}
     env_file: .env
+    ports:
+      - "127.0.0.1:${ORCHEO_CANVAS_LOCAL_PORT:-5173}:5173"
     environment:
       VITE_ORCHEO_BACKEND_URL: ${VITE_ORCHEO_BACKEND_URL:-http://localhost:8000}
       VITE_ORCHEO_AUTH_ISSUER: ${VITE_ORCHEO_AUTH_ISSUER:-}
@@ -200,23 +187,6 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
-
-  canvas-local:
-    image: caddy:2
-    profiles:
-      - local-access
-    depends_on:
-      canvas:
-        condition: service_healthy
-    ports:
-      - "127.0.0.1:${ORCHEO_CANVAS_LOCAL_PORT:-5173}:5173"
-    command:
-      - caddy
-      - reverse-proxy
-      - --from
-      - :5173
-      - --to
-      - canvas:5173
 
   caddy:
     image: caddy:2

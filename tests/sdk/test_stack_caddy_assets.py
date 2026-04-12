@@ -15,12 +15,18 @@ CADDYFILE = STACK_DIR / "Caddyfile"
 ENV_EXAMPLE = STACK_DIR / ".env.example"
 
 
-def test_stack_compose_defines_public_ingress_and_local_access_profiles() -> None:
+def test_stack_compose_defines_public_ingress_and_direct_ports() -> None:
     compose = yaml.safe_load(COMPOSE_FILE.read_text(encoding="utf-8"))
     services = compose["services"]
 
-    assert "ports" not in services["backend"]
-    assert "ports" not in services["canvas"]
+    assert (
+        "127.0.0.1:${ORCHEO_BACKEND_LOCAL_PORT:-8000}:8000"
+        in services["backend"]["ports"]
+    )
+    assert (
+        "127.0.0.1:${ORCHEO_CANVAS_LOCAL_PORT:-5173}:5173"
+        in services["canvas"]["ports"]
+    )
     assert services["backend"]["healthcheck"]["test"] == [
         "CMD-SHELL",
         "curl -fsS http://localhost:8000/api/system/health > /dev/null",
@@ -33,18 +39,10 @@ def test_stack_compose_defines_public_ingress_and_local_access_profiles() -> Non
         services["backend"]["depends_on"]["postgres"]["condition"] == "service_healthy"
     )
     assert services["backend"]["depends_on"]["redis"]["condition"] == "service_healthy"
-    assert (
-        services["backend-local"]["depends_on"]["backend"]["condition"]
-        == "service_healthy"
-    )
-    assert (
-        services["canvas-local"]["depends_on"]["canvas"]["condition"]
-        == "service_healthy"
-    )
+    assert "backend-local" not in services
+    assert "canvas-local" not in services
     assert services["caddy"]["depends_on"]["backend"]["condition"] == "service_healthy"
     assert services["caddy"]["depends_on"]["canvas"]["condition"] == "service_healthy"
-    assert services["backend-local"]["profiles"] == ["local-access"]
-    assert services["canvas-local"]["profiles"] == ["local-access"]
     assert services["caddy"]["profiles"] == ["public-ingress"]
     assert "./Caddyfile:/etc/caddy/Caddyfile:ro" in services["caddy"]["volumes"]
     assert "caddy_data:/data" in services["caddy"]["volumes"]
@@ -79,8 +77,7 @@ def test_env_example_documents_public_ingress_contract() -> None:
 
     assert "ORCHEO_PUBLIC_INGRESS_ENABLED=false" in content
     assert "ORCHEO_PUBLIC_HOST=" in content
-    assert "ORCHEO_PUBLISH_LOCAL_PORTS=true" in content
-    assert "COMPOSE_PROFILES=local-access" in content
+    assert "COMPOSE_PROFILES=" in content
     assert "ORCHEO_CADDY_BACKEND_UPSTREAMS=backend:8000" in content
     assert "VITE_ALLOWED_HOSTS=localhost,127.0.0.1" in content
 
@@ -100,8 +97,6 @@ def test_stack_compose_config_renders_with_profiles(tmp_path: Path) -> None:
         [
             "docker",
             "compose",
-            "--profile",
-            "local-access",
             "--profile",
             "public-ingress",
             "-f",

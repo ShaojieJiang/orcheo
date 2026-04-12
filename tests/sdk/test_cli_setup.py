@@ -442,7 +442,7 @@ def test_build_env_updates(monkeypatch):
     assert updates["ORCHEO_CORS_ALLOW_ORIGINS"] == (
         "http://localhost:5173,http://127.0.0.1:5173"
     )
-    assert updates["COMPOSE_PROFILES"] == "local-access"
+    assert updates["COMPOSE_PROFILES"] == ""
     assert updates["VITE_ORCHEO_CHATKIT_DOMAIN_KEY"] == "domain"
     assert updates["ORCHEO_STACK_IMAGE"] == f"{setup._STACK_IMAGE_REPOSITORY}:2.0"
     assert defaults["ORCHEO_POSTGRES_PASSWORD"] == "safe"
