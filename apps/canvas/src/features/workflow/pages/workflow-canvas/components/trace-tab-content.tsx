@@ -156,8 +156,11 @@ export function TraceTabContent({
       )}
 
       {!hasData && !error && (
-        <div className="flex flex-1 items-center justify-center rounded-md border border-dashed border-border text-sm text-muted-foreground">
-          Trace data will appear here once spans are recorded.
+        <div
+          data-testid="trace-empty-state"
+          className="flex flex-1 items-center justify-center rounded-md border border-dashed border-border text-sm text-muted-foreground"
+        >
+          No trace spans recorded yet for this execution.
         </div>
       )}
 

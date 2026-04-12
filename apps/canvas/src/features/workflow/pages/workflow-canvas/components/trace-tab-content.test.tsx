@@ -97,9 +97,7 @@ describe("TraceTabContent", () => {
       />,
     );
 
-    expect(
-      screen.getByText(/trace data will appear here/i),
-    ).toBeInTheDocument();
+    expect(screen.getByTestId("trace-empty-state")).toBeInTheDocument();
     expect(screen.queryByTestId("trace-viewer")).not.toBeInTheDocument();
   });
 
