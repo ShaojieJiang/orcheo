@@ -342,3 +342,26 @@ def test_normalize_date_invalid_string_returns_empty() -> None:
     """_normalize_date returns empty string when both parsers fail (lines 107-109)."""
     result = RSSNode._normalize_date("not-a-date")
     assert result == ""
+
+
+# ---------------------------------------------------------------------------
+# _flatten_sources – targeting uncovered lines 62-65
+# ---------------------------------------------------------------------------
+
+
+def test_flatten_sources_nested_iterable_is_flattened() -> None:
+    """A nested iterable (non-string) is expanded via the elif branch (lines 62-63)."""
+    result = RSSNode._flatten_sources(
+        ["https://a.com/feed.xml", ("https://b.com/feed.xml", "https://c.com/feed.xml")]
+    )
+    assert result == [
+        "https://a.com/feed.xml",
+        "https://b.com/feed.xml",
+        "https://c.com/feed.xml",
+    ]
+
+
+def test_flatten_sources_non_iterable_item_is_stringified() -> None:
+    """A non-string, non-iterable item falls through to the else branch (lines 64-65)."""  # noqa: E501
+    result = RSSNode._flatten_sources(["https://a.com/feed.xml", 42])
+    assert result == ["https://a.com/feed.xml", "42"]
