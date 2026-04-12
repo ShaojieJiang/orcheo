@@ -37,7 +37,7 @@ class RSSNode(TaskNode):
     without aborting the remaining feeds.
     """
 
-    sources: list[str] = Field(description="RSS/Atom feed URLs to fetch")
+    sources: list[str] | str = Field(description="RSS/Atom feed URLs to fetch")
     timeout: float = Field(
         default=15.0,
         gt=0.0,
@@ -46,11 +46,17 @@ class RSSNode(TaskNode):
 
     @field_validator("sources", mode="before")
     @classmethod
-    def _normalize_sources(cls, value: list[str] | str) -> list[str]:
-        """Normalize a single feed URL into a list of sources."""
+    def _normalize_sources(cls, value: list[Any] | str) -> list[str]:
+        """Normalize a single feed URL or nested lists into a flat list of sources."""
         if isinstance(value, str):
             return [value]
-        return value
+        flat: list[str] = []
+        for item in value:
+            if isinstance(item, list):
+                flat.extend(item)
+            else:
+                flat.append(item)
+        return flat
 
     # ------------------------------------------------------------------
     # XML helpers
@@ -208,7 +214,16 @@ class RSSNode(TaskNode):
             follow_redirects=True,
             headers=RSS_REQUEST_HEADERS,
         ) as client:
-            for url in self.sources:
+            # Normalize in case template resolution produced a bare string
+            # or nested lists (model_copy in resolved_for_run skips validators).
+            sources = self.sources if isinstance(self.sources, list) else [self.sources]
+            flat_sources: list[str] = []
+            for src in sources:
+                if isinstance(src, list):
+                    flat_sources.extend(src)
+                else:
+                    flat_sources.append(src)
+            for url in flat_sources:
                 docs, error = await self._fetch_source(client, url, now_iso)
                 documents.extend(docs)
                 if error is not None:
