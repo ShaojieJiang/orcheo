@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import uuid4
 import pytest
@@ -163,3 +164,55 @@ async def test_chatkit_server_records_run_metadata_with_existing_runs() -> None:
 
     loaded = await server.store.load_thread(thread.id, context)
     assert len(loaded.metadata["runs"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_chatkit_server_uses_latest_request_metadata_for_workflow_inputs() -> (
+    None
+):
+    repository = InMemoryWorkflowRepository()
+    workflow = await create_workflow_with_graph(repository)
+    workflow_id = str(workflow.id)
+
+    server = create_chatkit_test_server(repository)
+    run = await repository.create_run(
+        workflow.id,
+        workflow_version_id=(await repository.get_latest_version(workflow.id)).id,
+        triggered_by="test",
+        input_payload={},
+    )
+    server._run_workflow = AsyncMock(  # type: ignore[attr-defined]
+        return_value=("Reply", {}, run)
+    )
+
+    thread = ThreadMetadata(
+        id="thr_latest_metadata",
+        created_at=datetime.now(UTC),
+        metadata={
+            "workflow_id": workflow_id,
+            "context": "The user is on Canvas Gallery.",
+        },
+    )
+    context: ChatKitRequestContext = {
+        "workflow_id": workflow_id,
+        "chatkit_request": SimpleNamespace(
+            metadata={
+                "context": "The user is viewing traces for workflow wf-123.",
+                "vaultOpen": True,
+            }
+        ),
+    }
+    await server.store.save_thread(thread, {})
+
+    user_item = _build_user_item(thread.id)
+    await server.store.add_thread_item(thread.id, user_item, {})
+
+    _ = [event async for event in server.respond(thread, user_item, context)]
+
+    _, inputs = server._run_workflow.await_args.args  # type: ignore[attr-defined]
+    assert inputs["metadata"]["workflow_id"] == workflow_id
+    assert (
+        inputs["metadata"]["context"]
+        == "The user is viewing traces for workflow wf-123."
+    )
+    assert inputs["metadata"]["vaultOpen"] is True

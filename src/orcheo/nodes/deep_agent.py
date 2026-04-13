@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 import logging
+import os
+from pathlib import Path
 from typing import Any
 from deepagents import create_deep_agent
 from langchain.agents.structured_output import ProviderStrategy
@@ -18,8 +20,6 @@ from orcheo.nodes.ai import WorkflowTool, _create_workflow_tool_func
 from orcheo.nodes.base import AINode
 from orcheo.nodes.registry import NodeMetadata, registry
 from orcheo.runtime.chat_models import normalize_chat_model_kwargs
-from orcheo.skills.manager import SkillManager
-from orcheo.skills.paths import get_skills_dir
 from orcheo.tracing.model_metadata import (
     build_ai_trace_metadata,
     infer_chat_result_model_name,
@@ -194,8 +194,19 @@ class DeepAgentNode(AINode):
             return self.skills
 
         try:
-            manager = SkillManager(skills_dir=get_skills_dir())
-            paths = manager.get_installed_skill_paths()
+            override = os.getenv("ORCHEO_SKILLS_DIR")
+            skills_dir = (
+                Path(override).expanduser()
+                if override
+                else (Path.home() / ".orcheo" / "skills")
+            )
+            if not skills_dir.is_dir():
+                return None
+            paths = sorted(
+                str(child)
+                for child in skills_dir.iterdir()
+                if child.is_dir() and (child / "SKILL.md").exists()
+            )
         except Exception:
             logger.warning("Failed to discover installed skills", exc_info=True)
             return None

@@ -7,7 +7,7 @@ This guide is for developers contributing to the Orcheo project.
 - `src/orcheo/` – core orchestration engine and FastAPI implementation
 - `apps/backend/` – deployment wrapper exposing the FastAPI ASGI app
 - `packages/sdk/` – lightweight Python SDK for composing workflow requests
-- `apps/canvas/` – React + Vite scaffold for the visual workflow designer
+- `apps/canvas/` – React + Vite web interface for monitoring and managing workflows
 
 ## Evaluation Node Imports
 
@@ -109,7 +109,7 @@ Refer to `.env.example` for sample values and to [Deployment Guide](deployment.m
 
 The `examples/` directory contains usage examples and notebooks:
 
-- `examples/quickstart/` – visual designer and SDK user journeys
+- `examples/quickstart/` – Canvas and SDK user journeys
 - `examples/ingest_langgraph.py` – push a Python LangGraph script directly to the backend importer, execute it, and stream live updates
 
 ## Further Reading

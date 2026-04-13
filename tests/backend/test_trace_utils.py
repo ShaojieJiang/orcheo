@@ -246,11 +246,11 @@ def test_build_text_events_for_sequence_values() -> None:
 
 
 def test_status_from_payload_handles_missing_status() -> None:
-    """_status_from_payload should return UNSET when no status metadata is present."""
+    """_status_from_payload should return OK when no status metadata is present."""
 
     status = trace_utils._status_from_payload({})
 
-    assert status.code == "UNSET"
+    assert status.code == "OK"
     assert status.message is None
 
 

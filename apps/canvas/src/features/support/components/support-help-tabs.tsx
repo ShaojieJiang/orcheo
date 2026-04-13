@@ -33,7 +33,7 @@ const faqItems: FaqItem[] = [
     id: "item-1",
     question: "What is Orcheo Canvas and how does it work?",
     answer:
-      "Orcheo Canvas is a visual workflow automation platform that lets you connect triggers, actions, and logic nodes on a canvas to build powerful automations without writing code.",
+      "Orcheo Canvas is the monitoring and management interface for Orcheo workflows. Use it to inspect execution history, manage credentials, and configure workflow settings. Workflows are authored via the SDK or AI coding agents.",
   },
   {
     id: "item-2",

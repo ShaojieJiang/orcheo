@@ -56,10 +56,10 @@ class SlackNode(TaskNode):
     """Optional comma separated list of channel IDs."""
 
     def _serialize_response(self, response_payload: dict[str, Any]) -> dict[str, Any]:
-        """Return a node result compatible with the old MCP response shape."""
+        """Return a structured node result from a Slack API response."""
         is_error = not bool(response_payload.get("ok"))
         return {
-            "content": [{"type": "text", "text": json.dumps(response_payload)}],
+            **response_payload,
             "is_error": is_error,
             "error": response_payload.get("error") if is_error else None,
         }
@@ -67,7 +67,6 @@ class SlackNode(TaskNode):
     def _error_result(self, message: str) -> dict[str, Any]:
         """Return a normalized error payload."""
         return {
-            "content": [],
             "is_error": True,
             "error": message,
         }

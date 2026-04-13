@@ -56,6 +56,7 @@ import {
 } from "./claude-code-agent";
 import { CODEX_AGENT_TEMPLATE, CODEX_AGENT_WORKFLOW } from "./codex-agent";
 import { GEMINI_AGENT_TEMPLATE, GEMINI_AGENT_WORKFLOW } from "./gemini-agent";
+import { VIBE_AGENT_TEMPLATE, VIBE_AGENT_WORKFLOW } from "./vibe-agent";
 
 export const SAMPLE_WORKFLOWS: Workflow[] = [
   PYTHON_AGENT_WORKFLOW,
@@ -93,6 +94,7 @@ export const WORKFLOW_TEMPLATE_DEFINITIONS: WorkflowTemplateDefinition[] = [
   CLAUDE_CODE_AGENT_TEMPLATE,
   CODEX_AGENT_TEMPLATE,
   GEMINI_AGENT_TEMPLATE,
+  VIBE_AGENT_TEMPLATE,
 ];
 
 const TEMPLATE_BY_ID = new Map(
@@ -143,4 +145,6 @@ export {
   CODEX_AGENT_WORKFLOW,
   GEMINI_AGENT_TEMPLATE,
   GEMINI_AGENT_WORKFLOW,
+  VIBE_AGENT_TEMPLATE,
+  VIBE_AGENT_WORKFLOW,
 };

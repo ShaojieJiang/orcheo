@@ -9,7 +9,6 @@ import re
 import secrets
 import shutil
 import subprocess
-import tarfile
 import tempfile
 import time
 from dataclasses import dataclass
@@ -71,7 +70,6 @@ class SetupConfig:
     canvas_upstream: str
     start_stack: bool
     install_docker_if_missing: bool
-    install_orcheo_skill: bool
     preserve_existing_backend_url: bool = False
     stack_project_dir: str | None = None
     stack_env_file: str | None = None
@@ -559,12 +557,15 @@ def _attempt_docker_autoinstall(*, console: Console) -> bool:
     return installer(console=console)
 
 
-def _resolve_mode(mode: SetupMode | None, *, yes: bool) -> SetupMode:
+def _resolve_mode(
+    mode: SetupMode | None, *, yes: bool, env_exists: bool = False
+) -> SetupMode:
     if mode is not None:
         return mode
+    default: SetupMode = "upgrade" if env_exists else "install"
     if yes:
-        return "install"
-    selected = typer.prompt("Setup mode [install/upgrade]", default="install").strip()
+        return default
+    selected = typer.prompt("Setup mode [install/upgrade]", default=default).strip()
     return "upgrade" if selected == "upgrade" else "install"
 
 
@@ -710,9 +711,8 @@ def _resolve_setup_toggles(
     *,
     start_stack: bool | None,
     install_docker: bool | None,
-    install_orcheo_skill: bool | None,
     yes: bool,
-) -> tuple[bool, bool, bool]:
+) -> tuple[bool, bool]:
     resolved_start_stack = _resolve_bool(
         start_stack,
         yes_default=yes,
@@ -725,16 +725,9 @@ def _resolve_setup_toggles(
         prompt="Install Docker when missing?",
         default=True,
     )
-    resolved_install_orcheo_skill = _resolve_bool(
-        install_orcheo_skill,
-        yes_default=yes,
-        prompt="Install Orcheo skill for AI coding agents (Claude, Codex)?",
-        default=True,
-    )
     return (
         resolved_start_stack,
         resolved_install_docker,
-        resolved_install_orcheo_skill,
     )
 
 
@@ -1338,7 +1331,6 @@ def run_setup(
     publish_local_ports: bool | None,
     start_stack: bool | None,
     install_docker: bool | None,
-    install_orcheo_skill: bool | None,
     yes: bool,
     manual_secrets: bool,
     console: Console,
@@ -1353,7 +1345,7 @@ def run_setup(
             "unless you explicitly override them.[/cyan]"
         )
 
-    resolved_mode = _resolve_mode(mode, yes=yes)
+    resolved_mode = _resolve_mode(mode, yes=yes, env_exists=has_existing_stack_env)
     (
         resolved_public_ingress_enabled,
         resolved_public_host,
@@ -1389,11 +1381,9 @@ def run_setup(
     (
         resolved_start_stack,
         resolved_install_docker,
-        resolved_install_orcheo_skill,
     ) = _resolve_setup_toggles(
         start_stack=start_stack,
         install_docker=install_docker,
-        install_orcheo_skill=install_orcheo_skill,
         yes=yes,
     )
 
@@ -1436,7 +1426,6 @@ def run_setup(
         canvas_upstream=resolved_canvas_upstream,
         start_stack=resolved_start_stack,
         install_docker_if_missing=resolved_install_docker,
-        install_orcheo_skill=resolved_install_orcheo_skill,
         preserve_existing_backend_url=preserve_existing_backend_url,
     )
 
@@ -1614,34 +1603,6 @@ def execute_setup(
         command_runner([*compose_args, "pull"], console=console)
         command_runner([*compose_args, "up", "-d"], console=console)
         _report_stack_health(config, stack_dir=stack_dir, console=console)
-
-    if config.install_orcheo_skill:  # pragma: no branch
-        _install_orcheo_skill(console=console)
-
-
-def _install_orcheo_skill(*, console: Console) -> None:
-    """Install or update the official Orcheo skill for all agent targets."""
-    from orcheo.skills.manager import SkillError
-    from orcheo_sdk.services.orcheo_skill import update_orcheo_skill_data
-
-    console.print("[cyan]Installing Orcheo skill for AI coding agents...[/cyan]")
-    try:
-        payload = update_orcheo_skill_data(targets=["all"])
-        targets = payload.get("targets", [])
-        for target in targets:
-            if isinstance(target, dict):  # pragma: no branch
-                name = target.get("target", "unknown")
-                status = target.get("status", "unknown")
-                console.print(f"  [green]{name}[/green]: {status}")
-    except (
-        SkillError,
-        OSError,
-        tarfile.TarError,
-    ) as exc:  # pragma: no cover - defensive catch
-        console.print(
-            f"[yellow]Orcheo skill installation failed: {exc}. "
-            "You can install it later with: orcheo-skill install -t all[/yellow]"
-        )
 
 
 def print_summary(config: SetupConfig, *, console: Console) -> None:

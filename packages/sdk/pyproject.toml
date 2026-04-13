@@ -28,7 +28,6 @@ dev = [
 [project.scripts]
 horcheo = "orcheo_sdk.cli.main:run_human"
 orcheo = "orcheo_sdk.cli.main:run"
-orcheo-skill = "orcheo_sdk.cli.orcheo_skill:run"
 
 [project.urls]
 Homepage = "https://github.com/AI-Colleagues/orcheo/tree/main/packages/sdk"

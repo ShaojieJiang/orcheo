@@ -2,9 +2,7 @@ import io
 import json
 import os
 import secrets
-import sys
 from pathlib import Path
-from types import SimpleNamespace
 import pytest
 from rich.console import Console
 from orcheo_sdk.cli import setup
@@ -309,6 +307,11 @@ def test_resolve_mode_and_backend(monkeypatch):
     monkeypatch.setattr(setup.typer, "prompt", lambda *args, **kwargs: "upgrade")
     assert setup._resolve_mode(None, yes=False) == "upgrade"
 
+    # --yes defaults to "upgrade" when an existing installation exists
+    assert setup._resolve_mode(None, yes=True, env_exists=True) == "upgrade"
+    # --yes defaults to "install" for fresh installs
+    assert setup._resolve_mode(None, yes=True, env_exists=False) == "install"
+
     backend, preserved = setup._resolve_backend_url(
         "http://a", mode="install", yes=False
     )
@@ -434,7 +437,6 @@ def test_build_env_updates(monkeypatch):
         canvas_upstream="canvas:5173",
         start_stack=False,
         install_docker_if_missing=False,
-        install_orcheo_skill=False,
     )
     updates, defaults = setup._build_env_updates(config, requested_stack_version="2.0")
     assert updates["ORCHEO_API_URL"] == "http://backend"
@@ -464,7 +466,6 @@ def test_build_env_updates_hides_debug_ports_in_local_only_mode(monkeypatch):
         canvas_upstream="canvas:5173",
         start_stack=False,
         install_docker_if_missing=False,
-        install_orcheo_skill=False,
     )
 
     updates, _ = setup._build_env_updates(config)
@@ -687,7 +688,6 @@ def test_ensure_stack_assets_fresh(monkeypatch, tmp_path):
         canvas_upstream="canvas:5173",
         start_stack=False,
         install_docker_if_missing=False,
-        install_orcheo_skill=False,
     )
     stack_dir, env_file = setup._ensure_stack_assets(
         config=config, console=make_console()
@@ -735,7 +735,6 @@ def test_ensure_stack_assets_existing_env(monkeypatch, tmp_path):
         canvas_upstream="canvas:5173",
         start_stack=False,
         install_docker_if_missing=False,
-        install_orcheo_skill=False,
         preserve_existing_backend_url=True,
     )
     setup._build_env_updates(config)
@@ -759,7 +758,6 @@ def test_run_setup_generates_api_key(monkeypatch, tmp_path):
         publish_local_ports=None,
         start_stack=False,
         install_docker=False,
-        install_orcheo_skill=False,
         yes=False,
         manual_secrets=False,
         console=console,
@@ -815,7 +813,6 @@ def test_execute_setup_without_start(monkeypatch, tmp_path):
         canvas_upstream="canvas:5173",
         start_stack=False,
         install_docker_if_missing=False,
-        install_orcheo_skill=True,
     )
 
     def fake_ensure(*args, **kwargs):
@@ -828,11 +825,8 @@ def test_execute_setup_without_start(monkeypatch, tmp_path):
         "_warn_chatkit_domain_key_missing",
         lambda *args, **kwargs: called.append("warn"),
     )
-    monkeypatch.setattr(
-        setup, "_install_orcheo_skill", lambda **kwargs: called.append("install")
-    )
     setup.execute_setup(config, console=make_console())
-    assert "install" in called
+    assert "warn" in called
 
 
 def test_execute_setup_with_start(monkeypatch, tmp_path):
@@ -854,7 +848,6 @@ def test_execute_setup_with_start(monkeypatch, tmp_path):
         canvas_upstream="canvas:5173",
         start_stack=True,
         install_docker_if_missing=False,
-        install_orcheo_skill=False,
     )
     monkeypatch.setattr(
         setup, "_ensure_stack_assets", lambda **kwargs: (stack_dir, env_path)
@@ -890,7 +883,6 @@ def test_execute_setup_missing_docker_command(monkeypatch, tmp_path):
         canvas_upstream="canvas:5173",
         start_stack=True,
         install_docker_if_missing=False,
-        install_orcheo_skill=False,
     )
     monkeypatch.setattr(
         setup, "_ensure_stack_assets", lambda **kwargs: (stack_dir, env_path)
@@ -900,22 +892,6 @@ def test_execute_setup_missing_docker_command(monkeypatch, tmp_path):
     monkeypatch.setattr(setup, "_docker_command", lambda: None)
     with pytest.raises(setup.typer.BadParameter):
         setup.execute_setup(config, console=make_console())
-
-
-def test_install_orcheo_skill(monkeypatch):
-    fake_manager = SimpleNamespace(SkillError=RuntimeError)
-    fake_orcheo_skill = SimpleNamespace(
-        update_orcheo_skill_data=lambda targets: {
-            "targets": [{"target": "alpha", "status": "ok"}]
-        }
-    )
-    monkeypatch.setitem(sys.modules, "orcheo.skills.manager", fake_manager)
-    monkeypatch.setitem(
-        sys.modules, "orcheo_sdk.services.orcheo_skill", fake_orcheo_skill
-    )
-    console = make_console()
-    setup._install_orcheo_skill(console=console)
-    assert "alpha" in console.file.getvalue()
 
 
 def test_print_setup_resolution_notes_public_ingress_debug_disabled() -> None:
@@ -953,7 +929,6 @@ def test_print_summary():
         canvas_upstream="canvas:5173",
         start_stack=True,
         install_docker_if_missing=False,
-        install_orcheo_skill=False,
     )
     config.stack_project_dir = "/tmp/stack"
     config.stack_env_file = "/tmp/stack/.env"

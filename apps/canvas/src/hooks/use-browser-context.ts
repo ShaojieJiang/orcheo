@@ -7,7 +7,8 @@
  *   setPageContext({ page: "canvas", workflowId: "abc", workflowName: "My Flow" });
  */
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { PageContext } from "@/hooks/use-page-context";
 
 const CONTEXT_URL = "http://localhost:3333/context";
 const HEARTBEAT_ACTIVE_MS = 5_000;
@@ -16,12 +17,6 @@ const MAX_RETRIES = 2;
 const INITIAL_BACKOFF_MS = 500;
 const BRIDGE_UNAVAILABLE_WARNING =
   "Browser context bridge is unavailable. Start `orcheo browser-aware` and refresh the page to reconnect.";
-
-interface PageContext {
-  page: "gallery" | "canvas" | "other";
-  workflowId?: string | null;
-  workflowName?: string | null;
-}
 
 function getOrCreateSessionId(): string {
   const key = "orcheo_browser_session_id";
@@ -165,14 +160,29 @@ export function useBrowserContext() {
     };
   }, [sendContext, startHeartbeat, stopHeartbeat]);
 
+  const [pageContext, setPageContextState] = useState<PageContext>({
+    page: "other",
+  });
+
   const setPageContext = useCallback(
     (ctx: PageContext) => {
       contextRef.current = ctx;
+      setPageContextState(ctx);
       // Fire immediately on context change.
       void sendContext(ctx, document.hasFocus());
     },
     [sendContext],
   );
 
-  return { setPageContext };
+  const setVaultOpen = useCallback(
+    (open: boolean) => {
+      const updated = { ...contextRef.current, vaultOpen: open };
+      contextRef.current = updated;
+      setPageContextState(updated);
+      void sendContext(updated, document.hasFocus());
+    },
+    [sendContext],
+  );
+
+  return { setPageContext, setVaultOpen, pageContext };
 }

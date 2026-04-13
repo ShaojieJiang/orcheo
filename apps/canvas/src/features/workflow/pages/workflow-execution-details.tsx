@@ -1,12 +1,18 @@
+import { useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
 import { ArrowLeftIcon, RotateCwIcon } from "lucide-react";
 import { Button } from "@/design-system/ui/button";
 import { Badge } from "@/design-system/ui/badge";
 import WorkflowExecutionHistory from "@features/workflow/components/panels/workflow-execution-history";
 import WorkflowPageLayout from "@features/workflow/components/layouts/workflow-page-layout";
+import { usePageContext } from "@/hooks/use-page-context";
 
 export default function WorkflowExecutionDetails() {
   const { executionId = "1" } = useParams();
+  const { setPageContext } = usePageContext();
+  useEffect(() => {
+    setPageContext({ page: "execution", executionId });
+  }, [setPageContext, executionId]);
   // Mock execution data
   const execution = {
     id: executionId,

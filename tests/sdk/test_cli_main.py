@@ -416,7 +416,6 @@ def test_run_install_flow_forced_mode(monkeypatch: pytest.MonkeyPatch) -> None:
         canvas_upstream="canvas:5173",
         start_stack=False,
         install_docker_if_missing=False,
-        install_orcheo_skill=False,
     )
 
     run_setup_args: dict[str, object] = {}
@@ -461,7 +460,6 @@ def test_run_install_flow_forced_mode(monkeypatch: pytest.MonkeyPatch) -> None:
         publish_local_ports=None,
         start_stack=None,
         install_docker=None,
-        install_orcheo_skill=None,
         manual_secrets=False,
         forced_mode="upgrade",
     )
@@ -486,7 +484,6 @@ def test_run_install_flow_parses_modes(monkeypatch: pytest.MonkeyPatch) -> None:
         canvas_upstream="canvas:5173",
         start_stack=False,
         install_docker_if_missing=False,
-        install_orcheo_skill=False,
     )
 
     called: list[str] = []
@@ -498,6 +495,7 @@ def test_run_install_flow_parses_modes(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(main_mod, "run_setup", fake_run_setup)
     monkeypatch.setattr(main_mod, "execute_setup", lambda *args, **kwargs: None)
     monkeypatch.setattr(main_mod, "print_summary", lambda *args, **kwargs: None)
+    monkeypatch.setattr(main_mod, "_install_agent_skills", lambda **kwargs: None)
 
     main_mod._run_install_flow(
         console=console,
@@ -513,7 +511,6 @@ def test_run_install_flow_parses_modes(monkeypatch: pytest.MonkeyPatch) -> None:
         publish_local_ports=None,
         start_stack=None,
         install_docker=None,
-        install_orcheo_skill=None,
         manual_secrets=False,
     )
 
@@ -766,3 +763,97 @@ def test_main_skips_update_check_when_disabled(
     assert client_calls
     assert update_calls == []
     assert isinstance(ctx.obj, CLIState)
+
+
+def test_install_agent_skills_yes_skips_all(monkeypatch: pytest.MonkeyPatch) -> None:
+    """_install_agent_skills returns immediately when yes=True."""
+    console = Console()
+    monkeypatch.setattr(
+        main_mod.shutil, "which", lambda name: pytest.fail("should not check")
+    )
+    main_mod._install_agent_skills(console=console, yes=True)
+
+
+def test_install_agent_skills_confirm_declined(monkeypatch: pytest.MonkeyPatch) -> None:
+    """_install_agent_skills returns without running subprocess when user declines."""
+    import io
+
+    console = Console(file=io.StringIO())
+    monkeypatch.setattr(main_mod.typer, "confirm", lambda *args, **kwargs: False)
+    ran: list[object] = []
+    monkeypatch.setattr(
+        main_mod.subprocess,
+        "run",
+        lambda *a, **kw: ran.append(a) or type("R", (), {"returncode": 0})(),
+    )
+    main_mod._install_agent_skills(console=console, yes=False)
+    assert ran == []
+
+
+def test_install_agent_skills_with_skill_mgr_found(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Uses skill-mgr binary when it is found in PATH."""
+    import io
+
+    console = Console(file=io.StringIO())
+    monkeypatch.setattr(main_mod.typer, "confirm", lambda *args, **kwargs: True)
+    monkeypatch.setattr(
+        main_mod.shutil,
+        "which",
+        lambda name: "/usr/bin/skill-mgr" if name == "skill-mgr" else None,
+    )
+
+    ran_cmds: list[list[str]] = []
+
+    def fake_run(cmd: list[str], **kwargs: object) -> object:
+        ran_cmds.append(cmd)
+        return type("R", (), {"returncode": 0})()
+
+    monkeypatch.setattr(main_mod.subprocess, "run", fake_run)
+    main_mod._install_agent_skills(console=console, yes=False)
+    assert ran_cmds[0][0] == "/usr/bin/skill-mgr"
+
+
+def test_install_agent_skills_without_skill_mgr_falls_back_to_uv(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Falls back to 'uv run skill-mgr' when skill-mgr is not in PATH."""
+    import io
+
+    console = Console(file=io.StringIO())
+    monkeypatch.setattr(main_mod.typer, "confirm", lambda *args, **kwargs: True)
+    monkeypatch.setattr(main_mod.shutil, "which", lambda name: None)
+
+    ran_cmds: list[list[str]] = []
+
+    def fake_run(cmd: list[str], **kwargs: object) -> object:
+        ran_cmds.append(cmd)
+        return type("R", (), {"returncode": 0})()
+
+    monkeypatch.setattr(main_mod.subprocess, "run", fake_run)
+    main_mod._install_agent_skills(console=console, yes=False)
+    assert ran_cmds[0][:2] == ["uv", "run"]
+
+
+def test_install_agent_skills_nonzero_exit_prints_warning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Prints a warning when skill-mgr exits with a non-zero status."""
+    import io
+
+    out = io.StringIO()
+    console = Console(file=out, no_color=True, highlight=False)
+    monkeypatch.setattr(main_mod.typer, "confirm", lambda *args, **kwargs: True)
+    monkeypatch.setattr(main_mod.shutil, "which", lambda name: None)
+
+    def fake_run(cmd: list[str], **kwargs: object) -> object:
+        return type("R", (), {"returncode": 1})()
+
+    monkeypatch.setattr(main_mod.subprocess, "run", fake_run)
+    main_mod._install_agent_skills(console=console, yes=False)
+    assert (
+        "Warning" in out.getvalue()
+        or "warning" in out.getvalue().lower()
+        or "skill-mgr" in out.getvalue()
+    )

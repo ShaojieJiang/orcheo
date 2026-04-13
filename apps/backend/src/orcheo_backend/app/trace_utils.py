@@ -555,7 +555,7 @@ def _status_from_history(record: RunHistoryRecord) -> TraceSpanStatus:
 def _status_from_payload(payload: Mapping[str, Any]) -> TraceSpanStatus:
     status = _coalesce_status(payload)
     if not status:
-        return TraceSpanStatus(code="UNSET")
+        return TraceSpanStatus(code="OK")
     lowered = status.lower()
     if lowered in {"completed", "success", "succeeded"}:
         return TraceSpanStatus(code="OK")

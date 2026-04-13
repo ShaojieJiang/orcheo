@@ -11,7 +11,7 @@ It supports both low-code (JSON config) and vibe-coding-first (AI agents build w
 The project is a monorepo containing:
 - **Core Engine & Backend** (`src/orcheo/`, `apps/backend/`): Python — FastAPI, LangGraph, Celery + Redis.
 - **SDK** (`packages/sdk/`): Python SDK and CLI (`orcheo` / `horcheo`).
-- **Canvas** (`apps/canvas/`): Visual workflow designer — React 19, Vite, Radix UI, Tailwind CSS, @xyflow/react.
+- **Canvas** (`apps/canvas/`): Web interface for monitoring and managing workflows — React 19, Vite, Radix UI, Tailwind CSS, @xyflow/react. Workflow authoring is done via the SDK or AI coding agents.
 
 ## Project Structure & Module Organization
 

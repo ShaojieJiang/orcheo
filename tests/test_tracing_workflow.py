@@ -275,11 +275,12 @@ def test_apply_message_events_ignores_non_sequence_messages() -> None:
     assert not span.events
 
 
-def test_apply_status_returns_when_status_missing() -> None:
+def test_apply_status_defaults_to_ok_when_status_missing() -> None:
     span = _RecordingSpan()
     workflow_module._apply_status(span, {})
 
-    assert span.status is None
+    assert span.status is not None
+    assert span.status.status_code == StatusCode.OK
     assert not span.events
 
 

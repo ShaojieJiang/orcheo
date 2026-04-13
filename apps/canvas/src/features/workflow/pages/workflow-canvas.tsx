@@ -26,14 +26,16 @@ export default function WorkflowCanvas({
   const workflowId = layoutProps.workflowProps.workflowId ?? null;
   const workflowName =
     layoutProps.topNavigationProps.currentWorkflow.name ?? null;
+  const activeTab = layoutProps.tabsProps.activeTab;
 
   useEffect(() => {
     setPageContext({
       page: "canvas",
       workflowId,
       workflowName,
+      activeTab,
     });
-  }, [setPageContext, workflowId, workflowName]);
+  }, [setPageContext, workflowId, workflowName, activeTab]);
 
   return <WorkflowCanvasLayout {...layoutProps} />;
 }

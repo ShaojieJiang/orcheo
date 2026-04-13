@@ -35,7 +35,6 @@ from orcheo_sdk.cli.setup import (
     print_summary,
     run_setup,
 )
-from orcheo_sdk.cli.skill import skill_app
 from orcheo_sdk.cli.state import CLIState
 from orcheo_sdk.cli.update_check import maybe_print_update_notice
 from orcheo_sdk.cli.workflow import workflow_app
@@ -101,7 +100,6 @@ app.add_typer(auth_app, name="auth")
 app.add_typer(node_app, name="node")
 app.add_typer(edge_app, name="edge")
 app.add_typer(plugin_app, name="plugin")
-app.add_typer(skill_app, name="skill")
 app.add_typer(workflow_app, name="workflow")
 app.add_typer(credential_app, name="credential")
 app.add_typer(code_app, name="code")
@@ -220,6 +218,30 @@ def main(
         )
 
 
+def _install_agent_skills(*, console: Console, yes: bool) -> None:
+    """Prompt to install the Orcheo skill into Claude Code and Codex via skill-mgr."""
+    if yes:
+        return
+    if not typer.confirm(
+        "\nInstall Orcheo skill for Claude Code and Codex?",
+        default=True,
+    ):
+        return
+    skill_mgr_bin = shutil.which("skill-mgr")
+    if skill_mgr_bin:
+        cmd = [skill_mgr_bin, "install", "AI-Colleagues/agent-skills/orcheo"]
+    else:
+        cmd = ["uv", "run", "skill-mgr", "install", "AI-Colleagues/agent-skills/orcheo"]
+    console.print(f"[cyan]$ {' '.join(cmd)}[/cyan]")
+    result = subprocess.run(cmd, check=False)
+    if result.returncode != 0:
+        console.print(
+            "[yellow]Warning:[/yellow] skill-mgr exited with a non-zero status. "
+            "You can install the skill manually with: "
+            "skill-mgr install AI-Colleagues/agent-skills/orcheo"
+        )
+
+
 def _run_install_flow(
     *,
     console: Console,
@@ -235,7 +257,6 @@ def _run_install_flow(
     publish_local_ports: bool | None,
     start_stack: bool | None,
     install_docker: bool | None,
-    install_orcheo_skill: bool | None,
     manual_secrets: bool,
     forced_mode: SetupMode | None = None,
 ) -> None:
@@ -253,13 +274,13 @@ def _run_install_flow(
         publish_local_ports=publish_local_ports,
         start_stack=start_stack,
         install_docker=install_docker,
-        install_orcheo_skill=install_orcheo_skill,
         yes=yes,
         manual_secrets=manual_secrets,
         console=console,
     )
     execute_setup(config, console=console, stack_version=stack_version)
     print_summary(config, console=console)
+    _install_agent_skills(console=console, yes=yes)
 
 
 def _resolve_install_console(ctx: typer.Context) -> Console:
@@ -416,13 +437,6 @@ def install_command(
             ),
         ),
     ] = None,
-    install_orcheo_skill: Annotated[
-        bool | None,
-        typer.Option(
-            "--install-orcheo-skill/--skip-orcheo-skill",
-            help="Install the Orcheo skill for AI coding agents, or skip.",
-        ),
-    ] = None,
     manual_secrets: Annotated[
         bool,
         typer.Option(
@@ -448,7 +462,6 @@ def install_command(
         publish_local_ports=publish_local_ports,
         start_stack=start_stack,
         install_docker=install_docker,
-        install_orcheo_skill=install_orcheo_skill,
         manual_secrets=manual_secrets,
     )
 
@@ -535,13 +548,6 @@ def install_upgrade_command(
             ),
         ),
     ] = None,
-    install_orcheo_skill: Annotated[
-        bool | None,
-        typer.Option(
-            "--install-orcheo-skill/--skip-orcheo-skill",
-            help="Install the Orcheo skill for AI coding agents, or skip.",
-        ),
-    ] = None,
     manual_secrets: Annotated[
         bool,
         typer.Option(
@@ -565,7 +571,6 @@ def install_upgrade_command(
         publish_local_ports=publish_local_ports,
         start_stack=start_stack,
         install_docker=install_docker,
-        install_orcheo_skill=install_orcheo_skill,
         manual_secrets=manual_secrets,
         forced_mode="upgrade",
     )

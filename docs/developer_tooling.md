@@ -45,7 +45,7 @@ repository lives outside the current working directory.
 Two quickstart flows now live under `examples/quickstart` to demonstrate both
 onboarding paths:
 
-- `canvas_welcome.json` – graph configuration suited for the visual designer.
+- `canvas_welcome.json` – graph configuration suited for the Canvas interface.
 - `sdk_quickstart.py` – Python script that builds the same graph and executes it
   locally using the SDK primitives.
 
