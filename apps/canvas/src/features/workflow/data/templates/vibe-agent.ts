@@ -18,12 +18,12 @@ graph TD;
 	extract_reply(extract_reply)
 	__end__([<p>END</p>]):::last
 	__start__ --> prepare_prompt;
-	prepare_prompt --> codex_agent;
-	prepare_prompt --> claude_code_agent;
-	prepare_prompt --> gemini_agent;
 	claude_code_agent --> extract_reply;
 	codex_agent --> extract_reply;
 	gemini_agent --> extract_reply;
+	prepare_prompt -. &nbsp;claude_code&nbsp; .-> claude_code_agent;
+	prepare_prompt -. &nbsp;codex&nbsp; .-> codex_agent;
+	prepare_prompt -. &nbsp;gemini&nbsp; .-> gemini_agent;
 	extract_reply --> __end__;
 	classDef default fill:#f2f0ff,line-height:1.2
 	classDef first fill-opacity:0

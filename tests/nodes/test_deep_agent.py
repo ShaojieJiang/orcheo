@@ -436,6 +436,16 @@ def test_resolve_skills_none_when_no_installed(
     assert result is None
 
 
+def test_resolve_skills_dir_not_exists(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Returns None when configured skills directory does not exist."""
+    monkeypatch.setenv(
+        "ORCHEO_SKILLS_DIR", "/nonexistent/path/that/does/not/exist/__orcheo_test__"
+    )
+    node = DeepAgentNode(name="t", ai_model="m")
+    result = node._resolve_skills()
+    assert result is None
+
+
 def test_resolve_skills_handles_exception() -> None:
     """Returns None when skill discovery fails."""
     node = DeepAgentNode(name="t", ai_model="m")
