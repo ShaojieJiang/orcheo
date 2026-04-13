@@ -408,15 +408,16 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
     def _ensure_workflow_metadata(
         thread: ThreadMetadata, context: ChatKitRequestContext
     ) -> None:
-        """Populate workflow metadata from request context when missing."""
+        """Merge the latest request metadata onto the thread before execution."""
         metadata = dict(thread.metadata or {})
-        if metadata.get("workflow_id"):
-            thread.metadata = metadata
-            return
+        request = context.get("chatkit_request") if context else None
+        request_metadata = getattr(request, "metadata", None)
+        if isinstance(request_metadata, Mapping) and request_metadata:
+            metadata.update(request_metadata)
         context_workflow_id = context.get("workflow_id") if context else None
         if context_workflow_id:
             metadata["workflow_id"] = context_workflow_id
-            thread.metadata = metadata
+        thread.metadata = metadata
 
     async def _resolve_user_item(
         self,

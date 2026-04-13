@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ExternalAgentProviderStatus } from "@/lib/api";
+import { getWorkflowTemplateDefinition } from "@features/workflow/data/workflow-data";
 import {
   createWorkflowFromTemplate,
   listWorkflows,
@@ -16,6 +17,10 @@ import {
 } from "@features/vibe/constants";
 import { buildVibeSupportedModels } from "@features/vibe/lib/vibe-models";
 
+const VIBE_TEMPLATE = getWorkflowTemplateDefinition(VIBE_WORKFLOW_TEMPLATE_ID);
+const TEMPLATE_SYNC_ACTOR = "canvas-app";
+const TEMPLATE_SUMMARY = { added: 0, removed: 0, modified: 0 };
+
 interface VibeWorkflowState {
   workflowId: string | null;
   isProvisioning: boolean;
@@ -23,6 +28,24 @@ interface VibeWorkflowState {
 }
 
 let cachedWorkflowId: string | null = null;
+
+const asRecord = (value: unknown): Record<string, unknown> | null =>
+  value && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : null;
+
+const resolveTemplateVersion = (metadata: unknown): string | null => {
+  const template = asRecord(asRecord(metadata)?.template);
+  const version = template?.templateVersion;
+  return typeof version === "string" && version.trim() ? version : null;
+};
+
+const resolveTemplateId = (metadata: unknown): string | null => {
+  const templateId = asRecord(metadata)?.template_id;
+  return typeof templateId === "string" && templateId.trim()
+    ? templateId
+    : null;
+};
 
 export function useVibeWorkflow(
   readyProviders: ExternalAgentProviderStatus[],
@@ -42,6 +65,7 @@ export function useVibeWorkflow(
   });
   const provisioningRef = useRef(false);
   const syncedModelsRef = useRef<string | null>(null);
+  const syncedTemplateRef = useRef<string | null>(null);
 
   const setWorkflowState = useCallback((nextState: VibeWorkflowState) => {
     setState((currentState) => {
@@ -77,11 +101,63 @@ export function useVibeWorkflow(
     [supportedModelsSignature],
   );
 
+  const syncManagedTemplate = useCallback(async (workflowId: string) => {
+    if (!VIBE_TEMPLATE?.metadata) {
+      return;
+    }
+
+    const syncKey = `${workflowId}:${VIBE_TEMPLATE.metadata.templateVersion}`;
+    if (syncedTemplateRef.current === syncKey) {
+      return;
+    }
+
+    const workflow = await request<ApiWorkflow>(`/api/workflows/${workflowId}`);
+    const latestMetadata = workflow.latest_version?.metadata;
+    const currentTemplateId = resolveTemplateId(latestMetadata);
+    const currentTemplateVersion = resolveTemplateVersion(latestMetadata);
+
+    if (
+      currentTemplateId === VIBE_WORKFLOW_TEMPLATE_ID &&
+      currentTemplateVersion === VIBE_TEMPLATE.metadata.templateVersion
+    ) {
+      syncedTemplateRef.current = syncKey;
+      return;
+    }
+
+    await request(`/api/workflows/${workflowId}/versions/ingest`, {
+      method: "POST",
+      body: JSON.stringify({
+        script: VIBE_TEMPLATE.script,
+        entrypoint: VIBE_TEMPLATE.entrypoint ?? null,
+        runnable_config: VIBE_TEMPLATE.runnableConfig ?? null,
+        metadata: {
+          source: "canvas-template",
+          template_id: VIBE_TEMPLATE.workflow.id,
+          template: VIBE_TEMPLATE.metadata,
+          canvas: {
+            snapshot: {
+              name: workflow.name,
+              description: workflow.description,
+              nodes: VIBE_TEMPLATE.workflow.nodes,
+              edges: VIBE_TEMPLATE.workflow.edges,
+            },
+            summary: TEMPLATE_SUMMARY,
+          },
+        },
+        notes: VIBE_TEMPLATE.notes,
+        created_by: TEMPLATE_SYNC_ACTOR,
+      }),
+    });
+
+    syncedTemplateRef.current = syncKey;
+  }, []);
+
   const provision = useCallback(
     async (models: ChatKitSupportedModel[]) => {
       if (provisioningRef.current) return;
 
       if (cachedWorkflowId) {
+        await syncManagedTemplate(cachedWorkflowId);
         await syncSupportedModels(cachedWorkflowId, models);
         setWorkflowState({
           workflowId: cachedWorkflowId,
@@ -109,6 +185,7 @@ export function useVibeWorkflow(
 
         if (existing) {
           cachedWorkflowId = existing.id;
+          await syncManagedTemplate(existing.id);
           await syncSupportedModels(existing.id, models);
           setWorkflowState({
             workflowId: existing.id,
@@ -149,12 +226,13 @@ export function useVibeWorkflow(
         provisioningRef.current = false;
       }
     },
-    [setWorkflowState, syncSupportedModels],
+    [setWorkflowState, syncManagedTemplate, syncSupportedModels],
   );
 
   useEffect(() => {
     if (!supportedModels || supportedModels.length === 0) {
       syncedModelsRef.current = null;
+      syncedTemplateRef.current = null;
       setWorkflowState({
         workflowId: null,
         isProvisioning: false,

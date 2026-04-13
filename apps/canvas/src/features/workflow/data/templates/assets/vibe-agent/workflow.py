@@ -26,8 +26,17 @@ def stringify_content(value: Any) -> str:
     return ""
 
 
-def flatten_inputs(inputs: Mapping[str, Any]) -> str:
-    """Flatten chat history and the current user message into one prompt."""
+def extract_context(inputs: Mapping[str, Any]) -> str:
+    """Return the Canvas context string carried in ChatKit metadata."""
+    metadata = inputs.get("metadata")
+    if not isinstance(metadata, Mapping):
+        return ""
+    context = metadata.get("context")
+    return context.strip() if isinstance(context, str) else ""
+
+
+def build_conversation_lines(inputs: Mapping[str, Any]) -> list[str]:
+    """Build ordered role: content lines from history and the current message."""
     lines: list[str] = []
     history = inputs.get("history")
     if isinstance(history, list):
@@ -46,15 +55,33 @@ def flatten_inputs(inputs: Mapping[str, Any]) -> str:
         if not lines or lines[-1] != latest_user_message:
             lines.append(latest_user_message)
 
-    if lines:
-        return "\n\n".join(lines)
+    return lines
 
+
+def with_context(context: str, label: str, body: str) -> str:
+    """Prepend a Canvas context block to *body* under *label*."""
+    return f"Canvas context:\n{context}\n\n{label}:\n{body}"
+
+
+def fallback_prompt(inputs: Mapping[str, Any], context: str) -> str:
+    """Return the first non-empty scalar prompt field, optionally prefixed with context."""  # noqa: E501
     for key in ("prompt", "query", "input", "message"):
         value = inputs.get(key)
         if isinstance(value, str) and value.strip():
-            return value.strip()
+            text = value.strip()
+            return with_context(context, "Task", text) if context else text
+    return f"Canvas context:\n{context}" if context else ""
 
-    return ""
+
+def flatten_inputs(inputs: Mapping[str, Any]) -> str:
+    """Flatten Canvas context, chat history, and the current message into one prompt."""
+    context = extract_context(inputs)
+    conversation = "\n\n".join(build_conversation_lines(inputs))
+    if conversation and context:
+        return with_context(context, "Conversation", conversation)
+    if conversation:
+        return conversation
+    return fallback_prompt(inputs, context)
 
 
 class FlattenChatPromptNode(TaskNode):

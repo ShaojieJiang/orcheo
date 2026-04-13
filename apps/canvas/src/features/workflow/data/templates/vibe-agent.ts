@@ -136,4 +136,19 @@ export const VIBE_AGENT_TEMPLATE: WorkflowTemplateDefinition = {
   script: vibeAgentScript,
   runnableConfig: vibeAgentConfig,
   notes: "Seeded from the Orcheo Vibe template.",
+  metadata: {
+    templateVersion: "1.0.1",
+    minOrcheoVersion: "0.14.2",
+    validatedProviderApi: "private-bot-listener-suite-2026-03-11",
+    validationDate: "2026-04-13",
+    owner: TEMPLATE_OWNER.name,
+    acceptanceCriteria: [
+      "Routes Vibe ChatKit requests to the selected external agent provider.",
+      "Includes Canvas page context in the generated external-agent prompt.",
+    ],
+    revalidationTriggers: [
+      "ChatKit metadata payload shape changes.",
+      "External agent provider selection contract changes.",
+    ],
+  },
 };

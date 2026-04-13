@@ -189,9 +189,7 @@ export default function SidebarLayout({
           >
             {sidebar}
 
-            {isResizing && (
-              <div className="absolute inset-0 z-10" />
-            )}
+            {isResizing && <div className="absolute inset-0 z-10" />}
 
             {showCollapseButton && onToggleCollapse && (
               <Button
@@ -257,9 +255,7 @@ export default function SidebarLayout({
           >
             {sidebar}
 
-            {isResizing && (
-              <div className="absolute inset-0 z-10" />
-            )}
+            {isResizing && <div className="absolute inset-0 z-10" />}
 
             {showCollapseButton && onToggleCollapse && (
               <Button
