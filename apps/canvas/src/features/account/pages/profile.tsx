@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import {
   Tabs,
   TabsContent,
@@ -7,6 +7,7 @@ import {
 } from "@/design-system/ui/tabs";
 import TopNavigation from "@features/shared/components/top-navigation";
 import useCredentialVault from "@/hooks/use-credential-vault";
+import { usePageContext } from "@/hooks/use-page-context";
 import { getAuthenticatedUserProfile } from "@features/auth/lib/auth-session";
 import type { ProfileUser } from "./profile/types";
 import { ProfileGeneralTab } from "./profile/components/profile-general-tab";
@@ -23,6 +24,10 @@ const FALLBACK_PROFILE: ProfileUser = {
 };
 
 export default function Profile() {
+  const { setPageContext } = usePageContext();
+  useEffect(() => {
+    setPageContext({ page: "profile" });
+  }, [setPageContext]);
   const authUser = useMemo(() => getAuthenticatedUserProfile(), []);
   const user = useMemo<ProfileUser>(() => {
     if (!authUser) {

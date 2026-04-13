@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useCallback, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/design-system/ui/button";
 import {
@@ -18,6 +18,7 @@ import {
 import { HelpCircle, Key, LogOut, Settings, User } from "lucide-react";
 import CredentialsVault from "@features/workflow/components/dialogs/credentials-vault";
 import { clearAuthSession } from "@features/auth/lib/auth-session";
+import { usePageContext } from "@/hooks/use-page-context";
 import type {
   Credential,
   CredentialInput,
@@ -45,7 +46,16 @@ export default function AccountMenu({
   onRevealCredentialSecret,
 }: AccountMenuProps) {
   const [isVaultOpen, setIsVaultOpen] = useState(false);
+  const { setVaultOpen } = usePageContext();
   const navigate = useNavigate();
+
+  const handleVaultOpenChange = useCallback(
+    (open: boolean) => {
+      setIsVaultOpen(open);
+      setVaultOpen(open);
+    },
+    [setVaultOpen],
+  );
 
   return (
     <>
@@ -77,7 +87,7 @@ export default function AccountMenu({
           <DropdownMenuItem
             onSelect={(event) => {
               event.preventDefault();
-              setIsVaultOpen(true);
+              handleVaultOpenChange(true);
             }}
             className="cursor-pointer"
           >
@@ -107,7 +117,7 @@ export default function AccountMenu({
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-      <Dialog open={isVaultOpen} onOpenChange={setIsVaultOpen}>
+      <Dialog open={isVaultOpen} onOpenChange={handleVaultOpenChange}>
         <DialogContent className="max-h-[85vh] max-w-4xl overflow-hidden">
           <DialogTitle className="sr-only">Credential Vault</DialogTitle>
           <DialogDescription className="sr-only">

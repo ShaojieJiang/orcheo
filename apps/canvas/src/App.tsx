@@ -1,6 +1,8 @@
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import { Toaster } from "@/design-system/ui/toaster";
 import { BrowserContextProvider } from "@/hooks/browser-context-provider";
+import { VibeProvider } from "@features/vibe/context/vibe-provider";
+import { VibeAuthenticatedLayout } from "@features/vibe/components/vibe-authenticated-layout";
 import WorkflowGallery from "@features/workflow/pages/workflow-gallery";
 import WorkflowCanvas from "@features/workflow/pages/workflow-canvas";
 import WorkflowExecutionDetails from "@features/workflow/pages/workflow-execution-details";
@@ -16,34 +18,38 @@ export default function OrcheoCanvasApp() {
   return (
     <Router>
       <BrowserContextProvider>
-        <Routes>
-          <Route path="/login" element={<Login />} />
+        <VibeProvider>
+          <Routes>
+            <Route path="/login" element={<Login />} />
 
-          <Route path="/auth/callback" element={<OAuthCallback />} />
-          <Route path="/chat/:workflowId" element={<PublicChatPage />} />
+            <Route path="/auth/callback" element={<OAuthCallback />} />
+            <Route path="/chat/:workflowId" element={<PublicChatPage />} />
 
-          <Route element={<RequireAuth />}>
-            <Route path="/" element={<WorkflowGallery />} />
+            <Route element={<RequireAuth />}>
+              <Route element={<VibeAuthenticatedLayout />}>
+                <Route path="/" element={<WorkflowGallery />} />
 
-            <Route path="/workflow-canvas" element={<WorkflowCanvas />} />
-            <Route
-              path="/workflow-canvas/:workflowId"
-              element={<WorkflowCanvas />}
-            />
+                <Route path="/workflow-canvas" element={<WorkflowCanvas />} />
+                <Route
+                  path="/workflow-canvas/:workflowId"
+                  element={<WorkflowCanvas />}
+                />
 
-            <Route
-              path="/workflow-execution-details/:executionId"
-              element={<WorkflowExecutionDetails />}
-            />
+                <Route
+                  path="/workflow-execution-details/:executionId"
+                  element={<WorkflowExecutionDetails />}
+                />
 
-            <Route path="/profile" element={<Profile />} />
+                <Route path="/profile" element={<Profile />} />
 
-            <Route path="/settings" element={<Settings />} />
+                <Route path="/settings" element={<Settings />} />
 
-            <Route path="/help-support" element={<HelpSupport />} />
-          </Route>
-        </Routes>
-        <Toaster />
+                <Route path="/help-support" element={<HelpSupport />} />
+              </Route>
+            </Route>
+          </Routes>
+          <Toaster />
+        </VibeProvider>
       </BrowserContextProvider>
     </Router>
   );

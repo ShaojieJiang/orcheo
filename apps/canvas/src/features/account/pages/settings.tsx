@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import {
   Tabs,
   TabsContent,
@@ -5,6 +6,7 @@ import {
   TabsTrigger,
 } from "@/design-system/ui/tabs";
 import useCredentialVault from "@/hooks/use-credential-vault";
+import { usePageContext } from "@/hooks/use-page-context";
 import AgentSettingsTab from "@features/account/components/settings/agent-settings-tab";
 import AppearanceSettingsTab from "@features/account/components/settings/appearance-settings-tab";
 import ApplicationSettingsTab from "@features/account/components/settings/application-settings-tab";
@@ -13,6 +15,10 @@ import TeamBillingSettingsTab from "@features/account/components/settings/team-b
 import TopNavigation from "@features/shared/components/top-navigation";
 
 export default function Settings() {
+  const { setPageContext } = usePageContext();
+  useEffect(() => {
+    setPageContext({ page: "settings" });
+  }, [setPageContext]);
   const {
     credentials,
     isLoading: isCredentialsLoading,

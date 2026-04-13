@@ -1,6 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import TopNavigation from "@features/shared/components/top-navigation";
 import useCredentialVault from "@/hooks/use-credential-vault";
+import { usePageContext } from "@/hooks/use-page-context";
 import { SupportHeader } from "@features/support/components/support-header";
 import { SupportResources } from "@features/support/components/support-resources";
 import { SupportHelpTabs } from "@features/support/components/support-help-tabs";
@@ -21,6 +22,10 @@ const ai = {
 };
 
 export default function HelpSupport() {
+  const { setPageContext } = usePageContext();
+  useEffect(() => {
+    setPageContext({ page: "help" });
+  }, [setPageContext]);
   const [searchQuery, setSearchQuery] = useState("");
   const initialMessages = useMemo<ChatMessageProps[]>(
     () => [

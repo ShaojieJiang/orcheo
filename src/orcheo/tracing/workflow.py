@@ -210,6 +210,7 @@ def _apply_message_events(span: Span, payload: Mapping[str, Any]) -> None:
 def _apply_status(span: Span, payload: Mapping[str, Any]) -> None:
     status = _coalesce_status(payload)
     if status is None:
+        span.set_status(Status(StatusCode.OK))
         return
     if status.lower() == "error":
         error_obj = payload.get("error")
