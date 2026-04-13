@@ -21,11 +21,6 @@ from orcheo_sdk.services.credentials import (
 )
 from orcheo_sdk.services.edges import list_edges_data, show_edge_data
 from orcheo_sdk.services.nodes import list_nodes_data, show_node_data
-from orcheo_sdk.services.orcheo_skill import (
-    install_orcheo_skill_data,
-    uninstall_orcheo_skill_data,
-    update_orcheo_skill_data,
-)
 from orcheo_sdk.services.plugins import (
     disable_plugin_data,
     doctor_plugins_data,
@@ -48,13 +43,6 @@ from orcheo_sdk.services.service_tokens import (
     revoke_service_token_data,
     rotate_service_token_data,
     show_service_token_data,
-)
-from orcheo_sdk.services.skills import (
-    install_skill_data,
-    list_skills_data,
-    show_skill_data,
-    uninstall_skill_data,
-    validate_skill_data,
 )
 from orcheo_sdk.services.workflows import (
     delete_workflow_data,
@@ -101,10 +89,6 @@ __all__ = [
     # Nodes
     "list_nodes_data",
     "show_node_data",
-    # Official Orcheo skill
-    "install_orcheo_skill_data",
-    "update_orcheo_skill_data",
-    "uninstall_orcheo_skill_data",
     # Edges
     "list_edges_data",
     "show_edge_data",
@@ -134,12 +118,6 @@ __all__ = [
     "list_agent_tools_data",
     "show_agent_tool_data",
     "load_tool_registry",
-    # Skills
-    "list_skills_data",
-    "show_skill_data",
-    "install_skill_data",
-    "uninstall_skill_data",
-    "validate_skill_data",
     # Service tokens
     "list_service_tokens_data",
     "show_service_token_data",

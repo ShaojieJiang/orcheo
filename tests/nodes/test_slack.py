@@ -1,6 +1,5 @@
 """Tests for Slack node."""
 
-import json
 from typing import Any
 from unittest.mock import AsyncMock, patch
 import httpx
@@ -86,9 +85,8 @@ async def test_slack_node_posts_message_with_full_payload(
         },
     )
     assert result == {
-        "content": [
-            {"type": "text", "text": json.dumps({"ok": True, "ts": "123.456"})}
-        ],
+        "ok": True,
+        "ts": "123.456",
         "is_error": False,
         "error": None,
     }
@@ -103,7 +101,6 @@ async def test_slack_node_reply_requires_thread_ts(slack_node: SlackNode) -> Non
     result = await slack_node.run({}, None)
 
     assert result == {
-        "content": [],
         "is_error": True,
         "error": "Missing required argument: thread_ts",
     }
@@ -165,8 +162,7 @@ async def test_slack_node_lists_predefined_channels(slack_node: SlackNode) -> No
     second_call = get_mock.await_args_list[1]
     assert first_call.kwargs["params"] == {"channel": "C111"}
     assert second_call.kwargs["params"] == {"channel": "C222"}
-    payload = json.loads(result["content"][0]["text"])
-    assert payload["channels"] == [{"id": "C111", "is_archived": False}]
+    assert result["channels"] == [{"id": "C111", "is_archived": False}]
 
 
 @pytest.mark.asyncio
@@ -295,7 +291,6 @@ async def test_slack_node_returns_http_errors(slack_node: SlackNode) -> None:
         result = await slack_node.run({}, None)
 
     assert result == {
-        "content": [],
         "is_error": True,
         "error": "boom",
     }
@@ -332,7 +327,6 @@ async def test_slack_node_post_message_requires_channel_id(
     result = await slack_node.run({}, None)
 
     assert result == {
-        "content": [],
         "is_error": True,
         "error": "Missing required argument: channel_id",
     }
@@ -346,7 +340,6 @@ async def test_slack_node_post_message_requires_text(slack_node: SlackNode) -> N
     result = await slack_node.run({}, None)
 
     assert result == {
-        "content": [],
         "is_error": True,
         "error": "Missing required argument: text",
     }
@@ -408,8 +401,7 @@ async def test_slack_node_lists_predefined_channels_skips_blank_entries(
         result = await slack_node.run({}, None)
 
     assert get_mock.await_count == 2
-    payload = json.loads(result["content"][0]["text"])
-    assert payload["channels"] == [
+    assert result["channels"] == [
         {"id": "C111", "is_archived": False},
         {"id": "C222", "is_archived": False},
     ]
@@ -434,14 +426,9 @@ async def test_slack_node_lists_predefined_channels_returns_api_errors(
         result = await slack_node.run({}, None)
 
     assert result == {
-        "content": [
-            {
-                "type": "text",
-                "text": json.dumps({"ok": False, "error": "channel_not_found"}),
-            }
-        ],
-        "is_error": True,
+        "ok": False,
         "error": "channel_not_found",
+        "is_error": True,
     }
 
 
@@ -492,7 +479,6 @@ async def test_slack_node_list_channels_returns_http_errors(
         result = await slack_node.run({}, None)
 
     assert result == {
-        "content": [],
         "is_error": True,
         "error": "boom",
     }
@@ -526,7 +512,6 @@ async def test_slack_node_add_reaction_validates_required_fields(
     result = await slack_node.run({}, None)
 
     assert result == {
-        "content": [],
         "is_error": True,
         "error": message,
     }
@@ -550,7 +535,6 @@ async def test_slack_node_add_reaction_returns_http_errors(
         result = await slack_node.run({}, None)
 
     assert result == {
-        "content": [],
         "is_error": True,
         "error": "boom",
     }
@@ -567,7 +551,6 @@ async def test_slack_node_channel_history_requires_channel_id(
     result = await slack_node.run({}, None)
 
     assert result == {
-        "content": [],
         "is_error": True,
         "error": "Missing required argument: channel_id",
     }
@@ -587,7 +570,6 @@ async def test_slack_node_channel_history_returns_http_errors(
         result = await slack_node.run({}, None)
 
     assert result == {
-        "content": [],
         "is_error": True,
         "error": "boom",
     }
@@ -611,7 +593,6 @@ async def test_slack_node_thread_replies_validate_required_fields(
     result = await slack_node.run({}, None)
 
     assert result == {
-        "content": [],
         "is_error": True,
         "error": message,
     }
@@ -631,7 +612,6 @@ async def test_slack_node_thread_replies_return_http_errors(
         result = await slack_node.run({}, None)
 
     assert result == {
-        "content": [],
         "is_error": True,
         "error": "boom",
     }
@@ -659,7 +639,6 @@ async def test_slack_node_get_users_adds_cursor_and_returns_http_errors(
         },
     )
     assert result == {
-        "content": [],
         "is_error": True,
         "error": "boom",
     }
@@ -674,7 +653,6 @@ async def test_slack_node_user_profile_requires_user_id(slack_node: SlackNode) -
     result = await slack_node.run({}, None)
 
     assert result == {
-        "content": [],
         "is_error": True,
         "error": "Missing required argument: user_id",
     }
@@ -694,7 +672,6 @@ async def test_slack_node_user_profile_returns_http_errors(
         result = await slack_node.run({}, None)
 
     assert result == {
-        "content": [],
         "is_error": True,
         "error": "boom",
     }

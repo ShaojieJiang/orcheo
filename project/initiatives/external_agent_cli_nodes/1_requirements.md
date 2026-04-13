@@ -45,7 +45,7 @@ Enable Orcheo workflows to delegate code- and agent-style tasks to the actual Cl
 | Workflow author | Resume successful use after upgrading the CLI | I benefit from current provider capabilities without rebuilding Orcheo | P1 | Worker records the resolved CLI version used for each run |
 | Operator | Keep a working runtime available when maintenance or upgrades fail | Latest-channel updates do not break already-functioning workflows | P0 | New runtimes are staged side-by-side, manifests switch only after successful install + probe, and the last known-good runtime remains runnable until cleanup |
 | Operator | Bound disk and process growth from external agent runtimes | Worker hosts remain predictable under repeated installs and concurrent runs | P0 | V1 defines retention/cleanup behavior for superseded runtimes and does not create extra background fan-out beyond the worker’s existing run concurrency |
-| Canvas user | Add and configure these nodes in Canvas | Visual workflow authoring stays aligned with backend node support | P1 | Canvas exposes both nodes in the catalog and supports editing prompt, working directory, timeout, and provider-safe defaults |
+| Canvas user | Add and configure these nodes in Canvas | Workflow management interface stays aligned with backend node support | P1 | Canvas exposes both nodes in the catalog and supports editing prompt, working directory, timeout, and provider-safe defaults |
 
 ### Context, Problems, Opportunities
 

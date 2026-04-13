@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import contextlib
+import os
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
@@ -402,37 +403,35 @@ def test_resolve_skills_explicit_empty_list() -> None:
     assert node._resolve_skills() == []
 
 
-def test_resolve_skills_auto_discovers(tmp_path: Path) -> None:
+def test_resolve_skills_auto_discovers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Auto-discovers installed skills when skills is None."""
-    from orcheo.skills.manager import SkillManager
-
-    # Set up a skills dir with one installed skill
     skills_dir = tmp_path / "skills"
-    source = tmp_path / "sources"
-    source.mkdir()
-    skill_dir = source / "test-skill"
-    skill_dir.mkdir()
+    skill_dir = skills_dir / "test-skill"
+    skill_dir.mkdir(parents=True)
     (skill_dir / "SKILL.md").write_text(
         "---\nname: test-skill\ndescription: A test skill.\n---\n"
     )
-    manager = SkillManager(skills_dir=skills_dir)
-    manager.install(str(skill_dir))
 
     node = DeepAgentNode(name="t", ai_model="m")
-    with patch("orcheo.nodes.deep_agent.get_skills_dir", return_value=skills_dir):
-        result = node._resolve_skills()
+    monkeypatch.setenv("ORCHEO_SKILLS_DIR", str(skills_dir))
+    result = node._resolve_skills()
 
     assert result is not None
     assert len(result) == 1
-    assert result[0] == str(skills_dir / "test-skill")
+    assert result[0] == str(skill_dir)
 
 
-def test_resolve_skills_none_when_no_installed(tmp_path: Path) -> None:
+def test_resolve_skills_none_when_no_installed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Returns None when no skills are installed."""
     skills_dir = tmp_path / "skills"
+    skills_dir.mkdir()
     node = DeepAgentNode(name="t", ai_model="m")
-    with patch("orcheo.nodes.deep_agent.get_skills_dir", return_value=skills_dir):
-        result = node._resolve_skills()
+    monkeypatch.setenv("ORCHEO_SKILLS_DIR", str(skills_dir))
+    result = node._resolve_skills()
 
     assert result is None
 
@@ -440,10 +439,7 @@ def test_resolve_skills_none_when_no_installed(tmp_path: Path) -> None:
 def test_resolve_skills_handles_exception() -> None:
     """Returns None when skill discovery fails."""
     node = DeepAgentNode(name="t", ai_model="m")
-    with patch(
-        "orcheo.nodes.deep_agent.get_skills_dir",
-        side_effect=RuntimeError("boom"),
-    ):
+    with patch("orcheo.nodes.deep_agent.Path.home", side_effect=RuntimeError("boom")):
         result = node._resolve_skills()
 
     assert result is None
@@ -465,7 +461,7 @@ async def test_run_invokes_deep_agent(tmp_path: Path) -> None:
             "orcheo.nodes.deep_agent.create_deep_agent", return_value=mock_agent
         ) as mock_create,
         patch("orcheo.nodes.deep_agent.MultiServerMCPClient") as mock_mcp,
-        patch("orcheo.nodes.deep_agent.get_skills_dir", return_value=tmp_path),
+        patch.dict(os.environ, {"ORCHEO_SKILLS_DIR": str(tmp_path)}),
     ):
         mock_mcp_instance = AsyncMock()
         mock_mcp_instance.get_tools.return_value = []
@@ -509,7 +505,7 @@ async def test_run_passes_model_string_without_kwargs(tmp_path: Path) -> None:
         ) as mock_create,
         patch("orcheo.nodes.deep_agent.MultiServerMCPClient") as mock_mcp,
         patch("orcheo.nodes.deep_agent.init_chat_model") as mock_init,
-        patch("orcheo.nodes.deep_agent.get_skills_dir", return_value=tmp_path),
+        patch.dict(os.environ, {"ORCHEO_SKILLS_DIR": str(tmp_path)}),
     ):
         mock_mcp_instance = AsyncMock()
         mock_mcp_instance.get_tools.return_value = []
@@ -538,7 +534,7 @@ async def test_run_infers_model_name_from_instance_for_trace(
         patch("orcheo.nodes.deep_agent.create_deep_agent", return_value=mock_agent),
         patch("orcheo.nodes.deep_agent.MultiServerMCPClient") as mock_mcp,
         patch("orcheo.nodes.deep_agent.init_chat_model", return_value=fake_model),
-        patch("orcheo.nodes.deep_agent.get_skills_dir", return_value=tmp_path),
+        patch.dict(os.environ, {"ORCHEO_SKILLS_DIR": str(tmp_path)}),
         patch(
             "orcheo.nodes.deep_agent.tool_execution_context",
             side_effect=lambda config: contextlib.nullcontext(),
@@ -582,7 +578,7 @@ async def test_run_with_response_format(tmp_path: Path) -> None:
         patch("orcheo.nodes.deep_agent.create_deep_agent", return_value=mock_agent),
         patch("orcheo.nodes.deep_agent.MultiServerMCPClient") as mock_mcp,
         patch("orcheo.nodes.deep_agent.ProviderStrategy") as mock_strategy,
-        patch("orcheo.nodes.deep_agent.get_skills_dir", return_value=tmp_path),
+        patch.dict(os.environ, {"ORCHEO_SKILLS_DIR": str(tmp_path)}),
     ):
         mock_mcp_instance = AsyncMock()
         mock_mcp_instance.get_tools.return_value = []
@@ -608,7 +604,7 @@ async def test_run_no_response_format(tmp_path: Path) -> None:
         patch("orcheo.nodes.deep_agent.create_deep_agent", return_value=mock_agent),
         patch("orcheo.nodes.deep_agent.MultiServerMCPClient") as mock_mcp,
         patch("orcheo.nodes.deep_agent.ProviderStrategy") as mock_strategy,
-        patch("orcheo.nodes.deep_agent.get_skills_dir", return_value=tmp_path),
+        patch.dict(os.environ, {"ORCHEO_SKILLS_DIR": str(tmp_path)}),
     ):
         mock_mcp_instance = AsyncMock()
         mock_mcp_instance.get_tools.return_value = []
@@ -631,7 +627,7 @@ async def test_run_model_kwargs_uses_init_chat_model(tmp_path: Path) -> None:
             "orcheo.nodes.deep_agent.create_deep_agent", return_value=mock_agent
         ) as mock_create,
         patch("orcheo.nodes.deep_agent.MultiServerMCPClient") as mock_mcp,
-        patch("orcheo.nodes.deep_agent.get_skills_dir", return_value=tmp_path),
+        patch.dict(os.environ, {"ORCHEO_SKILLS_DIR": str(tmp_path)}),
     ):
         mock_model = MagicMock()
         mock_init.return_value = mock_model
@@ -669,7 +665,7 @@ async def test_run_uses_inferred_provider_api_key_when_available(
             "orcheo.nodes.deep_agent.create_deep_agent", return_value=mock_agent
         ) as mock_create,
         patch("orcheo.nodes.deep_agent.MultiServerMCPClient") as mock_mcp,
-        patch("orcheo.nodes.deep_agent.get_skills_dir", return_value=tmp_path),
+        patch.dict(os.environ, {"ORCHEO_SKILLS_DIR": str(tmp_path)}),
     ):
         mock_model = MagicMock()
         mock_init.return_value = mock_model
@@ -731,7 +727,7 @@ async def test_run_passes_debug_flag(tmp_path: Path) -> None:
             "orcheo.nodes.deep_agent.create_deep_agent", return_value=mock_agent
         ) as mock_create,
         patch("orcheo.nodes.deep_agent.MultiServerMCPClient") as mock_mcp,
-        patch("orcheo.nodes.deep_agent.get_skills_dir", return_value=tmp_path),
+        patch.dict(os.environ, {"ORCHEO_SKILLS_DIR": str(tmp_path)}),
     ):
         mock_mcp_instance = AsyncMock()
         mock_mcp_instance.get_tools.return_value = []
@@ -754,7 +750,7 @@ async def test_run_defaults_skills_memory_none(tmp_path: Path) -> None:
             "orcheo.nodes.deep_agent.create_deep_agent", return_value=mock_agent
         ) as mock_create,
         patch("orcheo.nodes.deep_agent.MultiServerMCPClient") as mock_mcp,
-        patch("orcheo.nodes.deep_agent.get_skills_dir", return_value=tmp_path),
+        patch.dict(os.environ, {"ORCHEO_SKILLS_DIR": str(tmp_path)}),
     ):
         mock_mcp_instance = AsyncMock()
         mock_mcp_instance.get_tools.return_value = []
@@ -783,7 +779,7 @@ async def test_call_wraps_result(tmp_path: Path) -> None:
     with (
         patch("orcheo.nodes.deep_agent.create_deep_agent", return_value=mock_agent),
         patch("orcheo.nodes.deep_agent.MultiServerMCPClient") as mock_mcp,
-        patch("orcheo.nodes.deep_agent.get_skills_dir", return_value=tmp_path),
+        patch.dict(os.environ, {"ORCHEO_SKILLS_DIR": str(tmp_path)}),
     ):
         mock_mcp_instance = AsyncMock()
         mock_mcp_instance.get_tools.return_value = []
@@ -808,7 +804,7 @@ async def test_variable_interpolation_on_input_query(tmp_path: Path) -> None:
     with (
         patch("orcheo.nodes.deep_agent.create_deep_agent", return_value=mock_agent),
         patch("orcheo.nodes.deep_agent.MultiServerMCPClient") as mock_mcp,
-        patch("orcheo.nodes.deep_agent.get_skills_dir", return_value=tmp_path),
+        patch.dict(os.environ, {"ORCHEO_SKILLS_DIR": str(tmp_path)}),
     ):
         mock_mcp_instance = AsyncMock()
         mock_mcp_instance.get_tools.return_value = []

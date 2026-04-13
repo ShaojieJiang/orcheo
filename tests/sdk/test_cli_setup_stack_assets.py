@@ -123,7 +123,6 @@ def _setup_config() -> SetupConfig:
         canvas_upstream="canvas:5173",
         start_stack=True,
         install_docker_if_missing=True,
-        install_orcheo_skill=True,
     )
 
 
@@ -300,7 +299,6 @@ def test_run_setup_upgrade_preserves_existing_api_key_by_default(
         publish_local_ports=None,
         start_stack=None,
         install_docker=None,
-        install_orcheo_skill=None,
         yes=True,
         manual_secrets=False,
         console=Console(record=True),
@@ -328,7 +326,6 @@ def test_run_setup_upgrade_honors_explicit_api_key(
         publish_local_ports=None,
         start_stack=None,
         install_docker=None,
-        install_orcheo_skill=None,
         yes=True,
         manual_secrets=False,
         console=Console(record=True),
@@ -363,7 +360,6 @@ def test_run_setup_install_preserves_existing_env_by_default(
         publish_local_ports=None,
         start_stack=False,
         install_docker=False,
-        install_orcheo_skill=None,
         yes=True,
         manual_secrets=False,
         console=console,
@@ -402,7 +398,6 @@ def test_run_setup_install_explicit_public_ingress_updates_backend_url_defaults(
         publish_local_ports=True,
         start_stack=False,
         install_docker=False,
-        install_orcheo_skill=False,
         yes=True,
         manual_secrets=False,
         console=Console(record=True),
@@ -1283,7 +1278,6 @@ def test_setup_build_env_updates_and_warn_missing_branch(
         canvas_upstream="canvas:5173",
         start_stack=False,
         install_docker_if_missing=True,
-        install_orcheo_skill=True,
     )
     updates, defaults = setup_mod._build_env_updates(config)
     assert "ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN" not in updates
@@ -1392,7 +1386,6 @@ def test_run_setup_prints_generated_key_and_oauth_notice(
         publish_local_ports=None,
         start_stack=None,
         install_docker=None,
-        install_orcheo_skill=None,
         yes=False,
         manual_secrets=False,
         console=console,
@@ -1411,7 +1404,6 @@ def test_run_setup_prints_generated_key_and_oauth_notice(
         publish_local_ports=None,
         start_stack=False,
         install_docker=False,
-        install_orcheo_skill=None,
         yes=True,
         manual_secrets=False,
         console=oauth_console,
@@ -1440,7 +1432,6 @@ def test_run_setup_public_ingress_derives_public_env_contract(
         publish_local_ports=True,
         start_stack=False,
         install_docker=False,
-        install_orcheo_skill=False,
         yes=True,
         manual_secrets=False,
         console=Console(record=True),
@@ -1477,7 +1468,6 @@ def test_run_setup_public_ingress_requires_hostname_with_yes(
             publish_local_ports=None,
             start_stack=False,
             install_docker=False,
-            install_orcheo_skill=False,
             yes=True,
             manual_secrets=False,
             console=Console(record=True),

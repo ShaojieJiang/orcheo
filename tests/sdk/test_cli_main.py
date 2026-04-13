@@ -416,7 +416,6 @@ def test_run_install_flow_forced_mode(monkeypatch: pytest.MonkeyPatch) -> None:
         canvas_upstream="canvas:5173",
         start_stack=False,
         install_docker_if_missing=False,
-        install_orcheo_skill=False,
     )
 
     run_setup_args: dict[str, object] = {}
@@ -461,7 +460,6 @@ def test_run_install_flow_forced_mode(monkeypatch: pytest.MonkeyPatch) -> None:
         publish_local_ports=None,
         start_stack=None,
         install_docker=None,
-        install_orcheo_skill=None,
         manual_secrets=False,
         forced_mode="upgrade",
     )
@@ -486,7 +484,6 @@ def test_run_install_flow_parses_modes(monkeypatch: pytest.MonkeyPatch) -> None:
         canvas_upstream="canvas:5173",
         start_stack=False,
         install_docker_if_missing=False,
-        install_orcheo_skill=False,
     )
 
     called: list[str] = []
@@ -513,7 +510,6 @@ def test_run_install_flow_parses_modes(monkeypatch: pytest.MonkeyPatch) -> None:
         publish_local_ports=None,
         start_stack=None,
         install_docker=None,
-        install_orcheo_skill=None,
         manual_secrets=False,
     )
 
