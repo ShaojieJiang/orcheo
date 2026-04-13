@@ -10,15 +10,13 @@ import { useChatInterfaceOptions } from "@features/shared/components/chat-interf
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { buildChatTheme } from "@features/chatkit/lib/chatkit-theme";
 import { buildVibeComposerModels } from "@features/vibe/lib/vibe-models";
+import { VIBE_USER, VIBE_AI } from "@features/vibe/constants";
 
 const ChatKitSurfaceLazy = lazy(() =>
   import("@features/chatkit/components/chatkit-surface").then((module) => ({
     default: module.ChatKitSurface,
   })),
 );
-
-const VIBE_USER = { id: "vibe-user", name: "You", avatar: "" };
-const VIBE_AI = { id: "vibe-ai", name: "Orcheo Vibe", avatar: "" };
 
 interface VibeSidebarProps {
   isCollapsed?: boolean;

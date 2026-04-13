@@ -8,3 +8,6 @@ export const VIBE_WORKFLOW_NAME = "Orcheo Vibe";
 export const VIBE_WORKFLOW_TEMPLATE_ID = "template-vibe-agent";
 
 export const VIBE_AGENT_POLL_INTERVAL_MS = 30_000;
+
+export const VIBE_USER = { id: "vibe-user", name: "You", avatar: "" };
+export const VIBE_AI = { id: "vibe-ai", name: "Orcheo Vibe", avatar: "" };

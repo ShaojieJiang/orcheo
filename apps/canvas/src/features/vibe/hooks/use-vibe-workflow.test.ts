@@ -51,7 +51,7 @@ const EXISTING_VIBE_WORKFLOW: StoredWorkflow = {
 };
 
 describe("useVibeWorkflow", () => {
-  it("re-ingests existing managed workflows when the template is outdated", async () => {
+  it("re-ingests and updates an existing vibe workflow when the stored template version is outdated, without creating a new workflow", async () => {
     vi.mocked(createWorkflowFromTemplate).mockResolvedValue(undefined);
     vi.mocked(listWorkflows).mockResolvedValue([EXISTING_VIBE_WORKFLOW]);
     vi.mocked(request).mockImplementation(async (path, options) => {
