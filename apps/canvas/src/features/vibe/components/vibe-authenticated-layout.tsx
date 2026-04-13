@@ -9,7 +9,6 @@ import {
   VIBE_SIDEBAR_WIDTH,
 } from "@features/vibe/constants";
 import { VibeSidebar } from "./vibe-sidebar";
-import { VibeSidebarCollapsed } from "./vibe-sidebar-collapsed";
 
 export function VibeAuthenticatedLayout() {
   const { isOpen, toggleOpen } = useVibe();
@@ -17,7 +16,7 @@ export function VibeAuthenticatedLayout() {
 
   return (
     <SidebarLayout
-      sidebar={isOpen ? <VibeSidebar /> : <VibeSidebarCollapsed />}
+      sidebar={<VibeSidebar isCollapsed={!isOpen} />}
       isCollapsed={!isOpen}
       onToggleCollapse={toggleOpen}
       sidebarWidth={sidebarWidth}
@@ -27,6 +26,7 @@ export function VibeAuthenticatedLayout() {
       maxWidth={VIBE_SIDEBAR_MAX_WIDTH}
       onWidthChange={setSidebarWidth}
       showCollapseButton={false}
+      collapsedOverlay
       position="left"
       className="h-screen"
     >

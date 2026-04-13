@@ -9,7 +9,7 @@ import { useVibeChat } from "@features/vibe/hooks/use-vibe-chat";
 import { useChatInterfaceOptions } from "@features/shared/components/chat-interface-options";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { buildChatTheme } from "@features/chatkit/lib/chatkit-theme";
-import { VibeAgentSelector } from "./vibe-agent-selector";
+import { buildVibeComposerModels } from "@features/vibe/lib/vibe-models";
 
 const ChatKitSurfaceLazy = lazy(() =>
   import("@features/chatkit/components/chatkit-surface").then((module) => ({
@@ -20,11 +20,13 @@ const ChatKitSurfaceLazy = lazy(() =>
 const VIBE_USER = { id: "vibe-user", name: "You", avatar: "" };
 const VIBE_AI = { id: "vibe-ai", name: "Orcheo Vibe", avatar: "" };
 
-export function VibeSidebar() {
+interface VibeSidebarProps {
+  isCollapsed?: boolean;
+}
+
+export function VibeSidebar({ isCollapsed = false }: VibeSidebarProps) {
   const {
     toggleOpen,
-    selectedProvider,
-    setSelectedProvider,
     readyProviders,
     agentWorkflowId,
     isProvisioning,
@@ -36,21 +38,31 @@ export function VibeSidebar() {
 
   const colorScheme = useColorScheme();
   const hasAgents = readyProviders.length > 0;
-
-  const selectedDisplayName =
-    readyProviders.find((p) => p.provider === selectedProvider)?.display_name ??
-    "Agent";
+  const modelOptions = buildVibeComposerModels(readyProviders);
+  const showChatKitHeader = hasAgents && !isCollapsed;
 
   const chatKitOptions = useChatInterfaceOptions({
     chatkitOptions: {
       header: {
-        enabled: false,
+        enabled: showChatKitHeader,
+        title: {
+          enabled: true,
+          text: "Orcheo Vibe",
+        },
+        rightAction: {
+          icon: "close",
+          onClick: toggleOpen,
+        },
+      },
+      history: {
+        enabled: true,
       },
       composer: {
-        placeholder: `Message ${selectedDisplayName}...`,
+        placeholder: "Message Orcheo Vibe...",
+        ...(modelOptions ? { models: modelOptions } : {}),
       },
       startScreen: {
-        greeting: `Chat with ${selectedDisplayName} via **Orcheo Vibe**.`,
+        greeting: "Vibe with Orcheo",
       },
       theme: buildChatTheme(colorScheme),
     },
@@ -60,7 +72,7 @@ export function VibeSidebar() {
       workflowId: agentWorkflowId,
       context: contextString,
     },
-    title: `Orcheo Vibe — ${selectedDisplayName}`,
+    title: "Orcheo Vibe",
     user: VIBE_USER,
     ai: VIBE_AI,
     initialMessages: [],
@@ -105,33 +117,46 @@ export function VibeSidebar() {
     return null;
   }, [isProvisioning, sessionStatus, sessionError, refreshSession]);
 
+  if (isCollapsed) {
+    return (
+      <div className="relative h-full w-0 overflow-visible">
+        <button
+          type="button"
+          onClick={toggleOpen}
+          className="absolute left-0 top-40 z-20 flex h-7 w-7 items-center justify-center rounded-full bg-muted text-foreground shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          title="Open Orcheo Vibe"
+        >
+          <Sparkles
+            className={cn(
+              "h-4 w-4",
+              hasAgents ? "text-primary" : "text-muted-foreground",
+            )}
+          />
+          <span className="sr-only">Open Orcheo Vibe</span>
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-full flex-col">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-border px-4 py-3">
-        <div className="flex items-center gap-2">
-          <Sparkles className="h-4 w-4 text-primary" />
-          <h2 className="text-sm font-semibold">Orcheo Vibe</h2>
+      {(!showChatKitHeader || statusView) && (
+        <div className="flex h-14 shrink-0 items-center justify-between border-b border-border px-4 lg:px-6">
+          <div className="flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-primary" />
+            <h2 className="text-sm font-semibold">Orcheo Vibe</h2>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={toggleOpen}
+            className="h-8 w-8"
+          >
+            <X className="h-4 w-4" />
+            <span className="sr-only">Close sidebar</span>
+          </Button>
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={toggleOpen}
-          className="h-7 w-7"
-        >
-          <X className="h-4 w-4" />
-          <span className="sr-only">Close sidebar</span>
-        </Button>
-      </div>
-
-      {/* Agent selector */}
-      <div className="border-b border-border px-4 py-3">
-        <VibeAgentSelector
-          readyProviders={readyProviders}
-          selectedProvider={selectedProvider}
-          onSelect={setSelectedProvider}
-        />
-      </div>
+      )}
 
       {/* Content */}
       {!hasAgents ? (
@@ -148,7 +173,7 @@ export function VibeSidebar() {
           </Button>
         </div>
       ) : (
-        <div className="flex flex-1 flex-col overflow-hidden px-2 py-2">
+        <div className={cn("flex flex-1 flex-col overflow-hidden px-2 py-2")}>
           {statusView}
           {!statusView && agentWorkflowId && (
             <Suspense

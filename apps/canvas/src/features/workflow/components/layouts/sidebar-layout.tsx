@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 import { Button } from "@/design-system/ui/button";
@@ -81,6 +81,12 @@ export interface SidebarLayoutProps {
    * Additional CSS classes for the main content
    */
   mainClassName?: string;
+
+  /**
+   * Whether the collapsed sidebar should overlay the content instead of
+   * reserving layout width.
+   */
+  collapsedOverlay?: boolean;
 }
 
 /**
@@ -110,8 +116,26 @@ export default function SidebarLayout({
   className,
   sidebarClassName,
   mainClassName,
+  collapsedOverlay = false,
 }: SidebarLayoutProps) {
   const currentWidth = isCollapsed ? collapsedWidth : sidebarWidth;
+  const renderedWidth = isCollapsed && collapsedOverlay ? 0 : currentWidth;
+  const [isResizing, setIsResizing] = useState(false);
+  const leftAsideRef = useRef<HTMLElement | null>(null);
+  const rightAsideRef = useRef<HTMLElement | null>(null);
+
+  const setSidebarWidthVariable = (
+    aside: HTMLElement | null,
+    width: number,
+  ): void => {
+    aside?.style.setProperty("--sidebar-layout-width", `${width}px`);
+  };
+
+  useEffect(() => {
+    setSidebarWidthVariable(leftAsideRef.current, renderedWidth);
+    setSidebarWidthVariable(rightAsideRef.current, renderedWidth);
+  }, [renderedWidth]);
+
   const { handleMouseDown } = useSidebarResize({
     resizable,
     isCollapsed,
@@ -120,6 +144,28 @@ export default function SidebarLayout({
     maxWidth,
     position,
     onWidthChange,
+    onLiveWidthChange: (width) => {
+      if (position === "left") {
+        setSidebarWidthVariable(leftAsideRef.current, width);
+        return;
+      }
+      setSidebarWidthVariable(rightAsideRef.current, width);
+    },
+    onResizeStart: () => {
+      setIsResizing(true);
+      // Immediately disable the CSS transition via direct DOM mutation so the
+      // sidebar edge snaps to the cursor on the very first RAF tick, before the
+      // React re-render that removes the transition class can fire.
+      const aside =
+        position === "left" ? leftAsideRef.current : rightAsideRef.current;
+      aside?.style.setProperty("transition", "none");
+    },
+    onResizeEnd: () => {
+      setIsResizing(false);
+      const aside =
+        position === "left" ? leftAsideRef.current : rightAsideRef.current;
+      aside?.style.removeProperty("transition");
+    },
   });
 
   return (
@@ -127,13 +173,25 @@ export default function SidebarLayout({
       {position === "left" && (
         <>
           <aside
+            ref={leftAsideRef}
             className={cn(
-              "relative h-full border-r border-border bg-card transition-all duration-300 flex flex-col",
+              "relative flex h-full shrink-0 flex-col",
+              isCollapsed && collapsedOverlay
+                ? "overflow-visible border-0 bg-transparent"
+                : "border-r border-border bg-card",
+              !isResizing && "transition-[width] duration-300",
               sidebarClassName,
             )}
-            style={{ width: `${currentWidth}px` }}
+            style={{
+              width: "var(--sidebar-layout-width)",
+              willChange: isResizing ? "width" : undefined,
+            }}
           >
             {sidebar}
+
+            {isResizing && (
+              <div className="absolute inset-0 z-10" />
+            )}
 
             {showCollapseButton && onToggleCollapse && (
               <Button
@@ -153,12 +211,19 @@ export default function SidebarLayout({
 
             {resizable && !isCollapsed && (
               <div
-                className="absolute top-0 right-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/20 transition-colors"
+                data-testid="sidebar-resize-handle"
+                className="absolute top-0 right-0 bottom-0 w-2 cursor-col-resize hover:bg-primary/20 transition-colors"
                 onMouseDown={handleMouseDown}
               />
             )}
           </aside>
-          <main className={cn("flex-1 h-full min-h-0", mainClassName)}>
+          <main
+            className={cn(
+              "flex-1 h-full min-h-0",
+              isResizing && "pointer-events-none",
+              mainClassName,
+            )}
+          >
             {children}
           </main>
         </>
@@ -166,17 +231,35 @@ export default function SidebarLayout({
 
       {position === "right" && (
         <>
-          <main className={cn("flex-1 h-full min-h-0", mainClassName)}>
+          <main
+            className={cn(
+              "flex-1 h-full min-h-0",
+              isResizing && "pointer-events-none",
+              mainClassName,
+            )}
+          >
             {children}
           </main>
           <aside
+            ref={rightAsideRef}
             className={cn(
-              "relative h-full border-l border-border bg-card transition-all duration-300 flex flex-col",
+              "relative flex h-full shrink-0 flex-col",
+              isCollapsed && collapsedOverlay
+                ? "overflow-visible border-0 bg-transparent"
+                : "border-l border-border bg-card",
+              !isResizing && "transition-[width] duration-300",
               sidebarClassName,
             )}
-            style={{ width: `${currentWidth}px` }}
+            style={{
+              width: "var(--sidebar-layout-width)",
+              willChange: isResizing ? "width" : undefined,
+            }}
           >
             {sidebar}
+
+            {isResizing && (
+              <div className="absolute inset-0 z-10" />
+            )}
 
             {showCollapseButton && onToggleCollapse && (
               <Button
@@ -196,7 +279,8 @@ export default function SidebarLayout({
 
             {resizable && !isCollapsed && (
               <div
-                className="absolute top-0 left-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/20 transition-colors"
+                data-testid="sidebar-resize-handle"
+                className="absolute top-0 left-0 bottom-0 w-2 cursor-col-resize hover:bg-primary/20 transition-colors"
                 onMouseDown={handleMouseDown}
               />
             )}

@@ -8,6 +8,9 @@ interface UseSidebarResizeProps {
   maxWidth: number;
   position: "left" | "right";
   onWidthChange?: (width: number) => void;
+  onLiveWidthChange?: (width: number) => void;
+  onResizeStart?: () => void;
+  onResizeEnd?: () => void;
 }
 
 export const useSidebarResize = ({
@@ -18,30 +21,74 @@ export const useSidebarResize = ({
   maxWidth,
   position,
   onWidthChange,
+  onLiveWidthChange,
+  onResizeStart,
+  onResizeEnd,
 }: UseSidebarResizeProps) => {
   const resizingRef = useRef(false);
   const startXRef = useRef(0);
   const startWidthRef = useRef(sidebarWidth);
+  const liveWidthRef = useRef(sidebarWidth);
+  const frameRef = useRef<number | null>(null);
+  const detachDragListenersRef = useRef<() => void>(() => undefined);
 
   useEffect(() => {
+    if (resizingRef.current) {
+      return;
+    }
     startWidthRef.current = sidebarWidth;
+    liveWidthRef.current = sidebarWidth;
   }, [sidebarWidth]);
 
-  const handleMouseDown = useCallback(
-    (e: React.MouseEvent) => {
-      if (!resizable || isCollapsed) return;
+  const applyLiveWidth = useCallback(
+    (width: number) => {
+      liveWidthRef.current = width;
+      if (frameRef.current !== null) {
+        return;
+      }
 
-      resizingRef.current = true;
-      startXRef.current = e.clientX;
-      startWidthRef.current = sidebarWidth;
-      e.preventDefault();
+      frameRef.current = window.requestAnimationFrame(() => {
+        frameRef.current = null;
+        onLiveWidthChange?.(liveWidthRef.current);
+      });
     },
-    [resizable, isCollapsed, sidebarWidth],
+    [onLiveWidthChange],
+  );
+
+  const clearDragState = useCallback(() => {
+    document.body.style.removeProperty("cursor");
+    document.body.style.removeProperty("user-select");
+  }, []);
+
+  const finishResize = useCallback(
+    (commitWidth: boolean) => {
+      if (!resizingRef.current) {
+        return;
+      }
+
+      resizingRef.current = false;
+      if (frameRef.current !== null) {
+        window.cancelAnimationFrame(frameRef.current);
+        frameRef.current = null;
+        onLiveWidthChange?.(liveWidthRef.current);
+      }
+      detachDragListenersRef.current();
+      clearDragState();
+      if (commitWidth) {
+        onWidthChange?.(liveWidthRef.current);
+      }
+      onResizeEnd?.();
+    },
+    [clearDragState, onLiveWidthChange, onResizeEnd, onWidthChange],
   );
 
   const handleMouseMove = useCallback(
     (e: MouseEvent) => {
       if (!resizingRef.current) return;
+      if ((e.buttons & 1) !== 1) {
+        finishResize(true);
+        return;
+      }
 
       const delta =
         position === "left"
@@ -50,34 +97,68 @@ export const useSidebarResize = ({
       let newWidth = startWidthRef.current + delta;
       newWidth = Math.max(minWidth, Math.min(maxWidth, newWidth));
 
-      onWidthChange?.(newWidth);
+      if (newWidth === liveWidthRef.current) {
+        return;
+      }
+
+      applyLiveWidth(newWidth);
     },
-    [position, minWidth, maxWidth, onWidthChange],
+    [applyLiveWidth, finishResize, maxWidth, minWidth, position],
   );
 
   const handleMouseUp = useCallback(() => {
-    resizingRef.current = false;
-  }, []);
+    finishResize(true);
+  }, [finishResize]);
+
+  const detachDragListeners = useCallback(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+
+    document.removeEventListener("mousemove", handleMouseMove);
+    document.removeEventListener("mouseup", handleMouseUp);
+    window.removeEventListener("blur", handleMouseUp);
+  }, [handleMouseMove, handleMouseUp]);
 
   useEffect(() => {
-    if (!resizable) {
-      return;
-    }
+    detachDragListenersRef.current = detachDragListeners;
+  }, [detachDragListeners]);
 
-    const targetDocument =
-      typeof document !== "undefined" ? document : undefined;
-    if (!targetDocument) {
-      return;
-    }
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      if (!resizable || isCollapsed || e.button !== 0) return;
 
-    targetDocument.addEventListener("mousemove", handleMouseMove);
-    targetDocument.addEventListener("mouseup", handleMouseUp);
+      resizingRef.current = true;
+      startXRef.current = e.clientX;
+      startWidthRef.current = sidebarWidth;
+      liveWidthRef.current = sidebarWidth;
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+      document.addEventListener("mousemove", handleMouseMove);
+      document.addEventListener("mouseup", handleMouseUp);
+      window.addEventListener("blur", handleMouseUp);
+      onResizeStart?.();
+      e.preventDefault();
+    },
+    [
+      handleMouseMove,
+      handleMouseUp,
+      isCollapsed,
+      onResizeStart,
+      resizable,
+      sidebarWidth,
+    ],
+  );
 
+  useEffect(() => {
     return () => {
-      targetDocument.removeEventListener("mousemove", handleMouseMove);
-      targetDocument.removeEventListener("mouseup", handleMouseUp);
+      detachDragListenersRef.current();
+      if (frameRef.current !== null) {
+        window.cancelAnimationFrame(frameRef.current);
+      }
+      clearDragState();
     };
-  }, [resizable, handleMouseMove, handleMouseUp]);
+  }, [clearDragState]);
 
   return { handleMouseDown };
 };

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getExternalAgents, type ExternalAgentProviderStatus } from "@/lib/api";
 import { VIBE_AGENT_POLL_INTERVAL_MS } from "@features/vibe/constants";
 
@@ -36,7 +36,10 @@ export function useVibeAgents() {
     };
   }, [fetchAgents]);
 
-  const readyProviders = providers.filter((p) => p.state === "ready");
+  const readyProviders = useMemo(
+    () => providers.filter((p) => p.state === "ready"),
+    [providers],
+  );
 
   return { providers, readyProviders, isLoading, refresh: fetchAgents };
 }
