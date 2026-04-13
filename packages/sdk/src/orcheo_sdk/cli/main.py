@@ -218,6 +218,30 @@ def main(
         )
 
 
+def _install_agent_skills(*, console: Console, yes: bool) -> None:
+    """Prompt to install the Orcheo skill into Claude Code and Codex via skill-mgr."""
+    if yes:
+        return
+    if not typer.confirm(
+        "\nInstall Orcheo skill for Claude Code and Codex?",
+        default=True,
+    ):
+        return
+    skill_mgr_bin = shutil.which("skill-mgr")
+    if skill_mgr_bin:
+        cmd = [skill_mgr_bin, "install", "AI-Colleagues/agent-skills/orcheo"]
+    else:
+        cmd = ["uv", "run", "skill-mgr", "install", "AI-Colleagues/agent-skills/orcheo"]
+    console.print(f"[cyan]$ {' '.join(cmd)}[/cyan]")
+    result = subprocess.run(cmd, check=False)
+    if result.returncode != 0:
+        console.print(
+            "[yellow]Warning:[/yellow] skill-mgr exited with a non-zero status. "
+            "You can install the skill manually with: "
+            "skill-mgr install AI-Colleagues/agent-skills/orcheo"
+        )
+
+
 def _run_install_flow(
     *,
     console: Console,
@@ -256,6 +280,7 @@ def _run_install_flow(
     )
     execute_setup(config, console=console, stack_version=stack_version)
     print_summary(config, console=console)
+    _install_agent_skills(console=console, yes=yes)
 
 
 def _resolve_install_console(ctx: typer.Context) -> Console:
