@@ -24,7 +24,6 @@ COPY orcheo-entrypoint.sh /usr/local/bin/orcheo-entrypoint
 RUN chmod +x /usr/local/bin/orcheo-entrypoint
 
 # Always build with --no-cache to ensure latest packages are installed
-RUN uv pip install --system --no-cache -U orcheo orcheo-backend
-RUN uv tool install --no-cache -U orcheo-sdk
+RUN uv pip install --system --no-cache -U orcheo orcheo-backend, orcheo-sdk
 RUN uv tool install --no-cache -U skill-mgr
 ENTRYPOINT ["orcheo-entrypoint"]
