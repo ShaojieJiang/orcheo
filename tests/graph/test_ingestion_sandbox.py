@@ -155,6 +155,16 @@ def test_create_sandbox_namespace_allows_asyncio_import() -> None:
     assert module is importlib.import_module("asyncio")
 
 
+def test_create_sandbox_namespace_allows_base64_import() -> None:
+    """Ensure restricted imports allow the base64 module."""
+    namespace = sandbox.create_sandbox_namespace()
+    restricted_import = namespace["__builtins__"]["__import__"]
+
+    module = restricted_import("base64")
+
+    assert module is importlib.import_module("base64")
+
+
 def test_create_sandbox_namespace_allows_submodule_prefix_import() -> None:
     """Ensure allow-listed prefixes include submodule imports."""
     namespace = sandbox.create_sandbox_namespace()

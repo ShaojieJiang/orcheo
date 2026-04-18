@@ -5,11 +5,11 @@ import {
   createWorkflowFromTemplate,
   listWorkflows,
 } from "@features/workflow/lib/workflow-storage";
-import { request } from "@features/workflow/lib/workflow-storage-api";
 import {
-  type ApiWorkflow,
-  type ChatKitSupportedModel,
-} from "@features/workflow/lib/workflow-storage.types";
+  fetchWorkflowVersions,
+  request,
+} from "@features/workflow/lib/workflow-storage-api";
+import { type ChatKitSupportedModel } from "@features/workflow/lib/workflow-storage.types";
 import {
   VIBE_AGENT_TAG,
   VIBE_WORKFLOW_NAME,
@@ -111,8 +111,8 @@ export function useVibeWorkflow(
       return;
     }
 
-    const workflow = await request<ApiWorkflow>(`/api/workflows/${workflowId}`);
-    const latestMetadata = workflow.latest_version?.metadata;
+    const versions = await fetchWorkflowVersions(workflowId);
+    const latestMetadata = versions.at(-1)?.metadata;
     const currentTemplateId = resolveTemplateId(latestMetadata);
     const currentTemplateVersion = resolveTemplateVersion(latestMetadata);
 
@@ -136,8 +136,8 @@ export function useVibeWorkflow(
           template: VIBE_TEMPLATE.metadata,
           canvas: {
             snapshot: {
-              name: workflow.name,
-              description: workflow.description,
+              name: VIBE_TEMPLATE.workflow.name,
+              description: VIBE_TEMPLATE.workflow.description,
               nodes: VIBE_TEMPLATE.workflow.nodes,
               edges: VIBE_TEMPLATE.workflow.edges,
             },

@@ -147,5 +147,48 @@ class CredentialResolver:
             return None
         return tokens.model_copy(deep=True)
 
+    def persist_refreshed_tokens(
+        self,
+        identifier: str,
+        *,
+        new_access_token: str,
+        new_refresh_token: str | None = None,
+        fallback_refresh_token: str | None = None,
+        actor: str = "system",
+    ) -> bool:
+        """Write refreshed OAuth tokens back to the vault.
+
+        Locates the credential by *identifier* (name or UUID) and updates it:
+        - OAUTH kind: replaces ``access_token`` and (if available) ``refresh_token``.
+        - SECRET kind: rotates the stored secret to *new_access_token*.
+
+        Returns ``True`` when the credential was found and updated, ``False`` when it
+        could not be located (e.g. custom credential name).  Other vault errors are
+        propagated to the caller.
+        """
+        try:
+            metadata = self._locate_metadata(identifier)
+        except (CredentialReferenceNotFoundError, DuplicateCredentialReferenceError):
+            return False
+        if metadata.kind is CredentialKind.OAUTH:
+            tokens = OAuthTokenSecrets(
+                access_token=new_access_token,
+                refresh_token=new_refresh_token or fallback_refresh_token,
+            )
+            self._vault.update_oauth_tokens(
+                credential_id=metadata.id,
+                tokens=tokens,
+                actor=actor,
+                context=self._context,
+            )
+        else:
+            self._vault.update_credential(
+                credential_id=metadata.id,
+                actor=actor,
+                secret=new_access_token,
+                context=self._context,
+            )
+        return True
+
 
 __all__ = ["CredentialResolver"]
