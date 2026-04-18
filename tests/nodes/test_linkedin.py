@@ -389,6 +389,28 @@ async def test_resolve_author_urn_organization(node: LinkedInPostNode) -> None:
 
 
 @pytest.mark.asyncio
+async def test_resolve_author_urn_organization_uses_configurable_urn(
+    node: LinkedInPostNode,
+) -> None:
+    configurable = {
+        "post_as": "organization",
+        "linkedin_version": "202604",
+        "organization_urn": "urn:li:organization:999",
+    }
+    with patch.object(
+        LinkedInPostNode, "resolve_organization_urn", new_callable=AsyncMock
+    ) as mock_resolve:
+        author_urn, person_id, org_urn = await node.resolve_author_urn(
+            {}, None, configurable, "tok"
+        )
+
+    mock_resolve.assert_not_awaited()
+    assert author_urn == "urn:li:organization:999"
+    assert person_id is None
+    assert org_urn == "urn:li:organization:999"
+
+
+@pytest.mark.asyncio
 async def test_resolve_author_urn_invalid_post_as(node: LinkedInPostNode) -> None:
     configurable = {
         "post_as": "company",
@@ -454,6 +476,15 @@ async def test_run_missing_refresh_token_raises(node: LinkedInPostNode) -> None:
 async def test_run_empty_commentary_raises(node: LinkedInPostNode) -> None:
     config = {"configurable": {"commentary": "   "}}
     with pytest.raises(ValueError, match="commentary is required"):
+        await node.run({}, config)
+
+
+@pytest.mark.asyncio
+async def test_run_invalid_visibility_raises(node: LinkedInPostNode) -> None:
+    jwt = _make_jwt({"sub": "person1"})
+    node.linkedin_id_token = jwt
+    config = {"configurable": {"commentary": "Test", "visibility": "EVERYONE"}}
+    with pytest.raises(ValueError, match="configurable.visibility must be one of"):
         await node.run({}, config)
 
 

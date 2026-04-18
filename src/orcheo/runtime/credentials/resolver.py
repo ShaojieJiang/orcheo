@@ -176,11 +176,17 @@ class CredentialResolver:
                 refresh_token=new_refresh_token or fallback_refresh_token,
             )
             self._vault.update_oauth_tokens(
-                credential_id=metadata.id, tokens=tokens, actor=actor
+                credential_id=metadata.id,
+                tokens=tokens,
+                actor=actor,
+                context=self._context,
             )
         else:
             self._vault.update_credential(
-                credential_id=metadata.id, actor=actor, secret=new_access_token
+                credential_id=metadata.id,
+                actor=actor,
+                secret=new_access_token,
+                context=self._context,
             )
         return True
 

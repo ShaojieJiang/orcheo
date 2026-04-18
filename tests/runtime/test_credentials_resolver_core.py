@@ -3,7 +3,12 @@
 from __future__ import annotations
 from uuid import uuid4
 import pytest
-from orcheo.models import CredentialAccessContext, CredentialScope
+from orcheo.models import (
+    CredentialAccessContext,
+    CredentialKind,
+    CredentialScope,
+    OAuthTokenSecrets,
+)
 from orcheo.runtime.credentials import (
     CredentialReference,
     CredentialReferenceNotFoundError,
@@ -172,3 +177,68 @@ def test_resolver_accepts_explicit_empty_payload_path() -> None:
     with credential_resolution(resolver):
         value = resolver.resolve(CredentialReference("telegram_token", ()))
         assert value == "token"
+
+
+def test_persist_refreshed_tokens_passes_context_for_oauth(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    vault = InMemoryCredentialVault()
+    vault.create_credential(
+        name="oauth_bot",
+        provider="oauth",
+        scopes=["bot"],
+        secret="ignored",
+        actor="tester",
+        kind=CredentialKind.OAUTH,
+        scope=CredentialScope.unrestricted(),
+        oauth_tokens=OAuthTokenSecrets(access_token="old-access"),
+    )
+    context = CredentialAccessContext(workspace_id=uuid4())
+    resolver = CredentialResolver(vault, context=context)
+
+    captured: dict[str, object] = {}
+
+    def _capture_update_oauth_tokens(**kwargs: object) -> None:
+        captured.update(kwargs)
+
+    monkeypatch.setattr(vault, "update_oauth_tokens", _capture_update_oauth_tokens)
+
+    updated = resolver.persist_refreshed_tokens(
+        "oauth_bot",
+        new_access_token="new-access",
+        new_refresh_token="new-refresh",
+    )
+
+    assert updated is True
+    assert captured["context"] is context
+
+
+def test_persist_refreshed_tokens_passes_context_for_secret(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    vault = InMemoryCredentialVault()
+    vault.create_credential(
+        name="secret_bot",
+        provider="telegram",
+        scopes=["bot"],
+        secret="old-secret",
+        actor="tester",
+        scope=CredentialScope.unrestricted(),
+    )
+    context = CredentialAccessContext(workflow_id=uuid4())
+    resolver = CredentialResolver(vault, context=context)
+
+    captured: dict[str, object] = {}
+
+    def _capture_update_credential(**kwargs: object) -> None:
+        captured.update(kwargs)
+
+    monkeypatch.setattr(vault, "update_credential", _capture_update_credential)
+
+    updated = resolver.persist_refreshed_tokens(
+        "secret_bot",
+        new_access_token="new-secret",
+    )
+
+    assert updated is True
+    assert captured["context"] is context

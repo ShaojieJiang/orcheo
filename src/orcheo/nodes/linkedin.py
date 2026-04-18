@@ -22,6 +22,7 @@ _ORG_ACLS_URL = "https://api.linkedin.com/rest/organizationAcls?q=roleAssignee"
 _POSTS_URL = "https://api.linkedin.com/rest/posts"
 _TOKEN_URL = "https://www.linkedin.com/oauth/v2/accessToken"
 _USERINFO_URL = "https://api.linkedin.com/v2/userinfo"
+_ALLOWED_VISIBILITY = frozenset({"PUBLIC", "CONNECTIONS", "LOGGED_IN"})
 
 
 class _LinkedInAuthError(Exception):
@@ -246,12 +247,17 @@ class LinkedInPostNode(TaskNode):
         """Resolve author identity from token context."""
         post_as = str(configurable["post_as"]).strip().lower()
         if post_as == "organization":
-            organization_urn = await self.resolve_organization_urn(
-                state,
-                config,
-                access_token,
-                str(configurable["linkedin_version"]).strip(),
-            )
+            configured_organization_urn = str(
+                configurable.get("organization_urn", "")
+            ).strip()
+            organization_urn = configured_organization_urn
+            if not organization_urn:
+                organization_urn = await self.resolve_organization_urn(
+                    state,
+                    config,
+                    access_token,
+                    str(configurable["linkedin_version"]).strip(),
+                )
             return organization_urn, None, organization_urn
         if post_as == "person":
             person_id, author_urn = await self.resolve_person_identity(
@@ -328,13 +334,14 @@ class LinkedInPostNode(TaskNode):
             )
             if not updated:
                 logger.warning(
-                    "Credential 'linkedin_access_token' not found in vault by name; "
-                    "the refreshed access token will not be persisted."
+                    "Credential '%s' not found in vault by name; "
+                    "the refreshed access token will not be persisted.",
+                    "linkedin_access_token",
                 )
         except Exception:
             logger.warning(
-                "Failed to update 'linkedin_access_token' in vault after "
-                "token refresh.",
+                "Failed to update '%s' in vault after token refresh.",
+                "linkedin_access_token",
                 exc_info=True,
             )
 
@@ -347,8 +354,8 @@ class LinkedInPostNode(TaskNode):
                 )
             except Exception:
                 logger.warning(
-                    "Failed to update 'linkedin_refresh_token' in vault after token "
-                    "refresh.",
+                    "Failed to update '%s' in vault after token refresh.",
+                    "linkedin_refresh_token",
                     exc_info=True,
                 )
 
@@ -363,6 +370,12 @@ class LinkedInPostNode(TaskNode):
         linkedin_version = str(configurable["linkedin_version"]).strip()
         visibility = str(configurable["visibility"]).strip().upper()
         commentary = str(configurable["commentary"]).strip()
+        if visibility not in _ALLOWED_VISIBILITY:
+            allowed_values = ", ".join(sorted(_ALLOWED_VISIBILITY))
+            raise ValueError(
+                "configurable.visibility must be one of "
+                f"{allowed_values}; received '{visibility}'."
+            )
 
         author_urn, person_id, organization_urn = await self.resolve_author_urn(
             state, config, configurable, access_token
