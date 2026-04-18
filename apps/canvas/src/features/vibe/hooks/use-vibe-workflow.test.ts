@@ -7,7 +7,10 @@ import {
   createWorkflowFromTemplate,
   listWorkflows,
 } from "@features/workflow/lib/workflow-storage";
-import { request } from "@features/workflow/lib/workflow-storage-api";
+import {
+  fetchWorkflowVersions,
+  request,
+} from "@features/workflow/lib/workflow-storage-api";
 
 vi.mock("@features/workflow/lib/workflow-storage", () => ({
   createWorkflowFromTemplate: vi.fn(),
@@ -15,6 +18,7 @@ vi.mock("@features/workflow/lib/workflow-storage", () => ({
 }));
 
 vi.mock("@features/workflow/lib/workflow-storage-api", () => ({
+  fetchWorkflowVersions: vi.fn(),
   request: vi.fn(),
 }));
 
@@ -54,38 +58,23 @@ describe("useVibeWorkflow", () => {
   it("re-ingests and updates an existing vibe workflow when the stored template version is outdated, without creating a new workflow", async () => {
     vi.mocked(createWorkflowFromTemplate).mockResolvedValue(undefined);
     vi.mocked(listWorkflows).mockResolvedValue([EXISTING_VIBE_WORKFLOW]);
+    vi.mocked(fetchWorkflowVersions).mockResolvedValue([
+      {
+        id: "workflow-1-version-1",
+        workflow_id: "workflow-1",
+        version: 1,
+        metadata: {
+          source: "canvas-template",
+          template_id: "template-vibe-agent",
+        },
+        notes: "Seeded from the Orcheo Vibe template.",
+        created_by: "canvas-app",
+        created_at: "2026-04-13T09:00:00.000Z",
+        updated_at: "2026-04-13T09:00:00.000Z",
+        graph: {},
+      },
+    ]);
     vi.mocked(request).mockImplementation(async (path, options) => {
-      if (path === "/api/workflows/workflow-1" && !options) {
-        return {
-          id: "workflow-1",
-          name: "Orcheo Vibe",
-          slug: "orcheo-vibe",
-          description: "Managed sidebar workflow.",
-          tags: ["orcheo-vibe-agent", "external-agent"],
-          is_archived: false,
-          is_public: false,
-          require_login: true,
-          published_at: null,
-          published_by: null,
-          created_at: "2026-04-13T09:00:00.000Z",
-          updated_at: "2026-04-13T09:00:00.000Z",
-          latest_version: {
-            id: "workflow-1-version-1",
-            workflow_id: "workflow-1",
-            version: 1,
-            metadata: {
-              source: "canvas-template",
-              template_id: "template-vibe-agent",
-            },
-            notes: "Seeded from the Orcheo Vibe template.",
-            created_by: "canvas-app",
-            created_at: "2026-04-13T09:00:00.000Z",
-            updated_at: "2026-04-13T09:00:00.000Z",
-            graph: {},
-          },
-        };
-      }
-
       if (
         path === "/api/workflows/workflow-1/versions/ingest" &&
         options?.method === "POST"
