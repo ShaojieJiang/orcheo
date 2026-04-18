@@ -213,6 +213,48 @@ def test_persist_refreshed_tokens_passes_context_for_oauth(
     assert captured["context"] is context
 
 
+def test_persist_refreshed_tokens_returns_false_when_not_found() -> None:
+    """persist_refreshed_tokens returns False when the credential name does not exist."""  # noqa: E501
+    vault = InMemoryCredentialVault()
+    resolver = CredentialResolver(vault)
+    result = resolver.persist_refreshed_tokens(
+        "nonexistent_credential", new_access_token="new-token"
+    )
+    assert result is False
+
+
+def test_persist_refreshed_tokens_returns_false_for_duplicate_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """persist_refreshed_tokens returns False when the name is ambiguous (duplicate)."""
+    from uuid import uuid4
+    from orcheo.models import CredentialScope
+
+    vault = InMemoryCredentialVault()
+    metadata = vault.create_credential(
+        name="ambiguous_token",
+        provider="oauth",
+        scopes=["bot"],
+        secret="ignored",
+        actor="tester",
+        scope=CredentialScope.unrestricted(),
+    )
+    duplicate = metadata.model_copy(update={"id": uuid4()}, deep=True)
+    metadata_by_id = {metadata.id: metadata, duplicate.id: duplicate}
+    metadata_by_name = {"ambiguous_token": [metadata, duplicate]}
+
+    resolver = CredentialResolver(vault)
+    monkeypatch.setattr(
+        resolver,
+        "_load_metadata_index",
+        lambda: (metadata_by_id, metadata_by_name),
+    )
+    result = resolver.persist_refreshed_tokens(
+        "ambiguous_token", new_access_token="new-token"
+    )
+    assert result is False
+
+
 def test_persist_refreshed_tokens_passes_context_for_secret(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

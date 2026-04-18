@@ -593,6 +593,127 @@ async def test_refresh_access_token_bad_status_raises(node: LinkedInPostNode) ->
             await node.refresh_access_token({}, None)
 
 
+@pytest.mark.asyncio
+async def test_refresh_access_token_non_json_response_raises(
+    node: LinkedInPostNode,
+) -> None:
+    node.linkedin_client_id = "client-id"
+    node.linkedin_client_secret = "client-secret"
+
+    refresh_result = {
+        "results": {
+            "refresh_token_request": {
+                "status_code": 200,
+                "json": None,
+                "content": "",
+            }
+        }
+    }
+    with patch(
+        "orcheo.nodes.linkedin.HttpRequestNode", _mock_http_node(refresh_result)
+    ):
+        with pytest.raises(ValueError, match="non-JSON response"):
+            await node.refresh_access_token({}, None)
+
+
+@pytest.mark.asyncio
+async def test_refresh_access_token_missing_access_token_raises(
+    node: LinkedInPostNode,
+) -> None:
+    node.linkedin_client_id = "client-id"
+    node.linkedin_client_secret = "client-secret"
+
+    refresh_result = {
+        "results": {
+            "refresh_token_request": {
+                "status_code": 200,
+                "json": {"refresh_token": "some-refresh"},
+                "content": "",
+            }
+        }
+    }
+    with patch(
+        "orcheo.nodes.linkedin.HttpRequestNode", _mock_http_node(refresh_result)
+    ):
+        with pytest.raises(ValueError, match="missing access_token"):
+            await node.refresh_access_token({}, None)
+
+
+# ---------------------------------------------------------------------------
+# _update_vault_tokens — active resolver paths
+# ---------------------------------------------------------------------------
+
+
+def test_update_vault_tokens_resolver_persists_access_token(
+    node: LinkedInPostNode,
+) -> None:
+    """With an active resolver, both tokens are persisted successfully."""
+    resolver = MagicMock()
+    resolver.persist_refreshed_tokens.return_value = True
+
+    with patch(
+        "orcheo.nodes.linkedin.get_active_credential_resolver", return_value=resolver
+    ):
+        node._update_vault_tokens("new-access", "new-refresh")
+
+    assert resolver.persist_refreshed_tokens.call_count == 2
+    first_call_kwargs = resolver.persist_refreshed_tokens.call_args_list[0].kwargs
+    assert first_call_kwargs["new_access_token"] == "new-access"
+    second_call_kwargs = resolver.persist_refreshed_tokens.call_args_list[1].kwargs
+    assert second_call_kwargs["new_access_token"] == "new-refresh"
+
+
+def test_update_vault_tokens_resolver_not_updated_logs_warning(
+    node: LinkedInPostNode,
+) -> None:
+    """When persist_refreshed_tokens returns False, a warning is logged."""
+    resolver = MagicMock()
+    resolver.persist_refreshed_tokens.return_value = False
+
+    with patch(
+        "orcheo.nodes.linkedin.get_active_credential_resolver", return_value=resolver
+    ):
+        with patch("orcheo.nodes.linkedin.logger") as mock_logger:
+            node._update_vault_tokens("new-access", None)
+
+    mock_logger.warning.assert_called()
+    warning_msg = mock_logger.warning.call_args_list[0].args[0]
+    assert "not found in vault" in warning_msg
+
+
+def test_update_vault_tokens_resolver_persist_raises_logs_warning(
+    node: LinkedInPostNode,
+) -> None:
+    """When persist_refreshed_tokens raises, a warning is logged and no exception propagates."""  # noqa: E501
+    resolver = MagicMock()
+    resolver.persist_refreshed_tokens.side_effect = Exception("vault error")
+
+    with patch(
+        "orcheo.nodes.linkedin.get_active_credential_resolver", return_value=resolver
+    ):
+        with patch("orcheo.nodes.linkedin.logger") as mock_logger:
+            node._update_vault_tokens("new-access", None)  # must not raise
+
+    mock_logger.warning.assert_called()
+
+
+def test_update_vault_tokens_refresh_token_persist_raises_logs_warning(
+    node: LinkedInPostNode,
+) -> None:
+    """When persisting the refresh token raises, a warning is logged."""
+    resolver = MagicMock()
+    resolver.persist_refreshed_tokens.side_effect = [True, Exception("vault error")]
+
+    with patch(
+        "orcheo.nodes.linkedin.get_active_credential_resolver", return_value=resolver
+    ):
+        with patch("orcheo.nodes.linkedin.logger") as mock_logger:
+            node._update_vault_tokens("new-access", "new-refresh")  # must not raise
+
+    assert resolver.persist_refreshed_tokens.call_count == 2
+    assert mock_logger.warning.called
+
+
 # ---------------------------------------------------------------------------
 # run — token refresh retry
 # ---------------------------------------------------------------------------
