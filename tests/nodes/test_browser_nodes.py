@@ -116,6 +116,8 @@ class FakePage:
             status=204,
             ok=True,
         )
+        self.function_handle_payload: Any = None
+        self.function_handle_disposed = False
 
     async def goto(self, url: str, **kwargs: Any) -> FakeResponse:
         self.url = url
@@ -138,9 +140,11 @@ class FakePage:
     async def wait_for_load_state(self, state: str, **kwargs: Any) -> None:
         self.wait_calls.append(("load_state", state, kwargs))
 
-    async def wait_for_function(self, expression: str, **kwargs: Any) -> dict[str, Any]:
+    async def wait_for_function(self, expression: str, **kwargs: Any) -> Any:
         self.wait_calls.append(("function", expression, kwargs))
-        return {"expression": expression, "arg": kwargs.get("arg")}
+        if self.function_handle_payload is None:
+            return {"expression": expression, "arg": kwargs.get("arg")}
+        return FakeJSHandle(self)
 
     async def wait_for_timeout(self, timeout: float) -> None:
         self.wait_calls.append(("timeout", timeout, {}))
@@ -224,6 +228,19 @@ class FakePlaywrightContextManager:
 
     async def start(self) -> FakePlaywright:
         return self.playwright
+
+
+class FakeJSHandle:
+    """Minimal JSHandle double used by wait_for_function tests."""
+
+    def __init__(self, page: FakePage) -> None:
+        self._page = page
+
+    async def json_value(self) -> Any:
+        return self._page.function_handle_payload
+
+    async def dispose(self) -> None:
+        self._page.function_handle_disposed = True
 
 
 @pytest.fixture
@@ -379,6 +396,38 @@ async def test_browser_wait_and_script_nodes_reuse_existing_session(
 
 
 @pytest.mark.asyncio
+async def test_browser_wait_for_function_serializes_handle(
+    fake_browser_runtime: FakePlaywright,
+) -> None:
+    """Function waits should serialize and dispose returned JSHandle values."""
+
+    state = State({"results": {}})
+    config = RunnableConfig(configurable={"thread_id": "exec-serialized"})
+    fake_browser_runtime.page.function_handle_payload = {
+        "expression": "() => window.ready === true",
+        "arg": {"expected": True},
+    }
+
+    await BrowserNavigateNode(
+        name="navigate",
+        url="https://example.com",
+    )(state, config)
+
+    function_wait = BrowserWaitNode(
+        name="wait_function",
+        wait_for="function",
+        expression="() => window.ready === true",
+        arg={"expected": True},
+    )
+    function_payload = (await function_wait(state, config))["results"]["wait_function"]
+    assert function_payload["value"] == {
+        "expression": "() => window.ready === true",
+        "arg": {"expected": True},
+    }
+    assert fake_browser_runtime.page.function_handle_disposed is True
+
+
+@pytest.mark.asyncio
 async def test_browser_sessions_are_scoped_by_thread_id(
     fake_browser_runtime: FakePlaywright,
 ) -> None:
@@ -396,6 +445,56 @@ async def test_browser_sessions_are_scoped_by_thread_id(
     )
 
     assert len(fake_browser_runtime.chromium.launch_calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_browser_session_manager_closes_all_sessions_for_scope(
+    fake_browser_runtime: FakePlaywright,
+) -> None:
+    """Closing one scope should tear down every associated browser session."""
+
+    del fake_browser_runtime
+    manager = browser_nodes.BrowserSessionManager()
+    config = RunnableConfig(configurable={"thread_id": "exec-scope"})
+
+    first, _ = await manager.get_or_create(
+        key=browser_nodes._session_key("browser", config),
+        browser_type="chromium",
+        headless=True,
+        launch_args=[],
+        viewport_width=None,
+        viewport_height=None,
+        user_agent=None,
+        locale=None,
+        timezone_id=None,
+        storage_state=None,
+        extra_http_headers=None,
+        ignore_https_errors=False,
+        java_script_enabled=True,
+        trace_path=None,
+    )
+    second, _ = await manager.get_or_create(
+        key=browser_nodes._session_key("browser-2", config),
+        browser_type="chromium",
+        headless=True,
+        launch_args=[],
+        viewport_width=None,
+        viewport_height=None,
+        user_agent=None,
+        locale=None,
+        timezone_id=None,
+        storage_state=None,
+        extra_http_headers=None,
+        ignore_https_errors=False,
+        java_script_enabled=True,
+        trace_path=None,
+    )
+
+    closed = await manager.close_scope("exec-scope")
+
+    assert closed == 2
+    assert first.context.closed is True
+    assert second.context.closed is True
 
 
 @pytest.mark.asyncio

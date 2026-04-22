@@ -357,6 +357,31 @@ class BrowserSessionManager:
             session = self._sessions.pop(key, None)
         if session is None:
             return False
+        await self._close_session(session, trace_path=trace_path)
+        return True
+
+    async def close_scope(self, scope: str) -> int:
+        """Close every session registered for one workflow run scope."""
+        if not scope:
+            return 0
+        scope_prefix = f"{scope}:"
+        async with self._lock:
+            scoped_sessions = [
+                self._sessions.pop(key)
+                for key in tuple(self._sessions)
+                if key == scope or key.startswith(scope_prefix)
+            ]
+        for session in scoped_sessions:
+            await self._close_session(session, trace_path=None)
+        return len(scoped_sessions)
+
+    @staticmethod
+    async def _close_session(
+        session: BrowserSession,
+        *,
+        trace_path: str | None,
+    ) -> None:
+        """Close all Playwright runtime resources for one browser session."""
         if session.tracing_started:
             final_trace_path = trace_path or session.trace_path
             if final_trace_path is not None:
@@ -366,10 +391,14 @@ class BrowserSessionManager:
         await session.context.close()
         await session.browser.close()
         await session.playwright.stop()
-        return True
 
 
 _browser_session_manager = BrowserSessionManager()
+
+
+async def close_browser_sessions_for_scope(scope: str) -> int:
+    """Close all active browser sessions for one workflow run scope."""
+    return await _browser_session_manager.close_scope(scope)
 
 
 class BrowserNode(TaskNode):
@@ -804,11 +833,20 @@ class BrowserWaitNode(BrowserNode):
         """Wait for a JavaScript condition to become truthy."""
         if not isinstance(self.expression, str) or not self.expression.strip():
             raise ValueError("BrowserWaitNode.function requires expression.")
-        return await session.page.wait_for_function(
+        wait_result = await session.page.wait_for_function(
             self.expression,
             arg=self.arg,
             **self._wait_timeout_kwargs(),
         )
+        as_json_value = getattr(wait_result, "json_value", None)
+        if not callable(as_json_value):
+            return wait_result
+        try:
+            return await as_json_value()
+        finally:
+            dispose = getattr(wait_result, "dispose", None)
+            if callable(dispose):
+                await dispose()
 
     async def _wait_for_timeout(self, session: BrowserSession) -> dict[str, Any]:
         """Sleep for the configured browser timeout."""
@@ -939,4 +977,5 @@ __all__ = [
     "BrowserScriptNode",
     "BrowserWaitFor",
     "BrowserWaitNode",
+    "close_browser_sessions_for_scope",
 ]

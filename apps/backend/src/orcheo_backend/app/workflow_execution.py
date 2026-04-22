@@ -18,6 +18,7 @@ from orcheo.config import get_settings
 from orcheo.external_agents import scoped_external_agent_environment
 from orcheo.graph.state import State
 from orcheo.nodes.agentensor import AgentensorNode
+from orcheo.nodes.browser import close_browser_sessions_for_scope
 from orcheo.runtime.credentials import CredentialResolver, credential_resolution
 from orcheo.runtime.runnable_config import (
     RunnableConfigModel,
@@ -392,70 +393,75 @@ async def execute_workflow(
         )
     )
 
-    with workflow_span(
-        tracer,
-        workflow_id=workflow_id,
-        execution_id=execution_id,
-        inputs=inputs,
-        runnable_config=parsed_config,
-    ) as span_context:
-        await history_store.start_run(
+    try:
+        with workflow_span(
+            tracer,
             workflow_id=workflow_id,
             execution_id=execution_id,
             inputs=inputs,
-            trace_id=span_context.trace_id,
-            trace_started_at=span_context.started_at,
-            runnable_config=stored_config,
-            tags=parsed_config.tags,
-            callbacks=parsed_config.callbacks,
-            metadata=parsed_config.metadata,
-            run_name=parsed_config.run_name,
-        )
-        await _emit_trace_update(
-            history_store,
-            websocket,
-            execution_id,
-            include_root=True,
-        )
+            runnable_config=parsed_config,
+        ) as span_context:
+            await history_store.start_run(
+                workflow_id=workflow_id,
+                execution_id=execution_id,
+                inputs=inputs,
+                trace_id=span_context.trace_id,
+                trace_started_at=span_context.started_at,
+                runnable_config=stored_config,
+                tags=parsed_config.tags,
+                callbacks=parsed_config.callbacks,
+                metadata=parsed_config.metadata,
+                run_name=parsed_config.run_name,
+            )
+            await _emit_trace_update(
+                history_store,
+                websocket,
+                execution_id,
+                include_root=True,
+            )
 
-        external_agent_environ = _external_agent_provider_environment()
-        with scoped_external_agent_environment(external_agent_environ):
-            with credential_resolution(resolver):
-                async with create_checkpointer(settings) as checkpointer:
-                    async with create_graph_store(settings) as graph_store:
-                        graph = build_graph(graph_config)
-                        compiled_graph = graph.compile(
-                            checkpointer=checkpointer,
-                            store=graph_store,
-                        )
+            external_agent_environ = _external_agent_provider_environment()
+            with scoped_external_agent_environment(external_agent_environ):
+                with credential_resolution(resolver):
+                    async with create_checkpointer(settings) as checkpointer:
+                        async with create_graph_store(settings) as graph_store:
+                            graph = build_graph(graph_config)
+                            compiled_graph = graph.compile(
+                                checkpointer=checkpointer,
+                                store=graph_store,
+                            )
 
-                        state = _build_initial_state(graph_config, inputs, state_config)
-                        _log_sensitive_debug("Initial state: %s", state)
+                            state = _build_initial_state(
+                                graph_config, inputs, state_config
+                            )
+                            _log_sensitive_debug("Initial state: %s", state)
 
-                        await _run_workflow_stream(
-                            compiled_graph,
-                            state,
-                            runtime_config,
-                            history_store,
-                            execution_id,
-                            websocket,
-                            tracer,
-                            span_context.span,
-                        )
+                            await _run_workflow_stream(
+                                compiled_graph,
+                                state,
+                                runtime_config,
+                                history_store,
+                                execution_id,
+                                websocket,
+                                tracer,
+                                span_context.span,
+                            )
 
-        completion_payload = {"status": "completed"}
-        record_workflow_completion(span_context.span)
-        await history_store.append_step(execution_id, completion_payload)
-        await history_store.mark_completed(execution_id)
-        await _safe_send_json(websocket, completion_payload)  # pragma: no cover
+            completion_payload = {"status": "completed"}
+            record_workflow_completion(span_context.span)
+            await history_store.append_step(execution_id, completion_payload)
+            await history_store.mark_completed(execution_id)
+            await _safe_send_json(websocket, completion_payload)  # pragma: no cover
 
-        await _emit_trace_update(
-            history_store,
-            websocket,
-            execution_id,
-            include_root=True,
-            complete=True,
-        )
+            await _emit_trace_update(
+                history_store,
+                websocket,
+                execution_id,
+                include_root=True,
+                complete=True,
+            )
+    finally:
+        await close_browser_sessions_for_scope(execution_id)
 
 
 async def _run_evaluation_node(
@@ -751,61 +757,64 @@ async def execute_workflow_evaluation(
         )
     )
 
-    with workflow_span(
-        tracer,
-        workflow_id=workflow_id,
-        execution_id=execution_id,
-        inputs=inputs,
-        runnable_config=parsed_config,
-    ) as span_context:
-        await history_store.start_run(
+    try:
+        with workflow_span(
+            tracer,
             workflow_id=workflow_id,
             execution_id=execution_id,
             inputs=inputs,
-            trace_id=span_context.trace_id,
-            trace_started_at=span_context.started_at,
-            runnable_config=stored_config,
-            tags=parsed_config.tags,
-            callbacks=parsed_config.callbacks,
-            metadata=parsed_config.metadata,
-            run_name=parsed_config.run_name,
-        )
-        await _emit_trace_update(
-            history_store,
-            websocket,
-            execution_id,
-            include_root=True,
-        )
+            runnable_config=parsed_config,
+        ) as span_context:
+            await history_store.start_run(
+                workflow_id=workflow_id,
+                execution_id=execution_id,
+                inputs=inputs,
+                trace_id=span_context.trace_id,
+                trace_started_at=span_context.started_at,
+                runnable_config=stored_config,
+                tags=parsed_config.tags,
+                callbacks=parsed_config.callbacks,
+                metadata=parsed_config.metadata,
+                run_name=parsed_config.run_name,
+            )
+            await _emit_trace_update(
+                history_store,
+                websocket,
+                execution_id,
+                include_root=True,
+            )
 
-        await _run_evaluation_node(
-            graph_config=graph_config,
-            inputs=inputs,
-            runtime_config=runtime_config,
-            state_config=state_config,
-            evaluation_request=evaluation_request,
-            parsed_config=parsed_config,
-            history_store=history_store,
-            websocket=websocket,
-            execution_id=execution_id,
-            tracer=tracer,
-            resolver=resolver,
-            settings=settings,
-            span=span_context.span,
-        )
+            await _run_evaluation_node(
+                graph_config=graph_config,
+                inputs=inputs,
+                runtime_config=runtime_config,
+                state_config=state_config,
+                evaluation_request=evaluation_request,
+                parsed_config=parsed_config,
+                history_store=history_store,
+                websocket=websocket,
+                execution_id=execution_id,
+                tracer=tracer,
+                resolver=resolver,
+                settings=settings,
+                span=span_context.span,
+            )
 
-        completion_payload = {"status": "completed"}
-        record_workflow_completion(span_context.span)
-        await history_store.append_step(execution_id, completion_payload)
-        await history_store.mark_completed(execution_id)
-        await _safe_send_json(websocket, completion_payload)  # pragma: no cover
+            completion_payload = {"status": "completed"}
+            record_workflow_completion(span_context.span)
+            await history_store.append_step(execution_id, completion_payload)
+            await history_store.mark_completed(execution_id)
+            await _safe_send_json(websocket, completion_payload)  # pragma: no cover
 
-        await _emit_trace_update(
-            history_store,
-            websocket,
-            execution_id,
-            include_root=True,
-            complete=True,
-        )
+            await _emit_trace_update(
+                history_store,
+                websocket,
+                execution_id,
+                include_root=True,
+                complete=True,
+            )
+    finally:
+        await close_browser_sessions_for_scope(execution_id)
 
 
 async def execute_workflow_training(
@@ -857,63 +866,66 @@ async def execute_workflow_training(
         )
     )
 
-    with workflow_span(
-        tracer,
-        workflow_id=workflow_id,
-        execution_id=execution_id,
-        inputs=inputs,
-        runnable_config=parsed_config,
-    ) as span_context:
-        await history_store.start_run(
+    try:
+        with workflow_span(
+            tracer,
             workflow_id=workflow_id,
             execution_id=execution_id,
             inputs=inputs,
-            trace_id=span_context.trace_id,
-            trace_started_at=span_context.started_at,
-            runnable_config=stored_config,
-            tags=parsed_config.tags,
-            callbacks=parsed_config.callbacks,
-            metadata=parsed_config.metadata,
-            run_name=parsed_config.run_name,
-        )
-        await _emit_trace_update(
-            history_store,
-            websocket,
-            execution_id,
-            include_root=True,
-        )
+            runnable_config=parsed_config,
+        ) as span_context:
+            await history_store.start_run(
+                workflow_id=workflow_id,
+                execution_id=execution_id,
+                inputs=inputs,
+                trace_id=span_context.trace_id,
+                trace_started_at=span_context.started_at,
+                runnable_config=stored_config,
+                tags=parsed_config.tags,
+                callbacks=parsed_config.callbacks,
+                metadata=parsed_config.metadata,
+                run_name=parsed_config.run_name,
+            )
+            await _emit_trace_update(
+                history_store,
+                websocket,
+                execution_id,
+                include_root=True,
+            )
 
-        await _run_training_node(
-            workflow_id=workflow_id,
-            graph_config=graph_config,
-            inputs=inputs,
-            runtime_config=runtime_config,
-            state_config=state_config,
-            training_request=training_request,
-            parsed_config=parsed_config,
-            history_store=history_store,
-            websocket=websocket,
-            execution_id=execution_id,
-            tracer=tracer,
-            resolver=resolver,
-            settings=settings,
-            span=span_context.span,
-            checkpoint_store=checkpoint_store,
-        )
+            await _run_training_node(
+                workflow_id=workflow_id,
+                graph_config=graph_config,
+                inputs=inputs,
+                runtime_config=runtime_config,
+                state_config=state_config,
+                training_request=training_request,
+                parsed_config=parsed_config,
+                history_store=history_store,
+                websocket=websocket,
+                execution_id=execution_id,
+                tracer=tracer,
+                resolver=resolver,
+                settings=settings,
+                span=span_context.span,
+                checkpoint_store=checkpoint_store,
+            )
 
-        completion_payload = {"status": "completed"}
-        record_workflow_completion(span_context.span)
-        await history_store.append_step(execution_id, completion_payload)
-        await history_store.mark_completed(execution_id)
-        await _safe_send_json(websocket, completion_payload)  # pragma: no cover
+            completion_payload = {"status": "completed"}
+            record_workflow_completion(span_context.span)
+            await history_store.append_step(execution_id, completion_payload)
+            await history_store.mark_completed(execution_id)
+            await _safe_send_json(websocket, completion_payload)  # pragma: no cover
 
-        await _emit_trace_update(
-            history_store,
-            websocket,
-            execution_id,
-            include_root=True,
-            complete=True,
-        )
+            await _emit_trace_update(
+                history_store,
+                websocket,
+                execution_id,
+                include_root=True,
+                complete=True,
+            )
+    finally:
+        await close_browser_sessions_for_scope(execution_id)
 
 
 async def execute_node(

@@ -59,6 +59,10 @@ async def test_execute_workflow() -> None:
         patch("orcheo_backend.app.create_graph_store", fake_graph_store),
         patch("orcheo_backend.app.build_graph", return_value=mock_graph),
         patch("orcheo_backend.app._history_store_ref", {"store": history_store}),
+        patch(
+            "orcheo_backend.app.workflow_execution.close_browser_sessions_for_scope",
+            new_callable=AsyncMock,
+        ) as mock_browser_cleanup,
     ):
         await execute_workflow(
             workflow_id,
@@ -68,6 +72,7 @@ async def test_execute_workflow() -> None:
             mock_websocket,
             runnable_config,
         )
+    mock_browser_cleanup.assert_awaited_once_with(execution_id)
 
     mock_graph.compile.assert_called_once_with(
         checkpointer=mock_checkpointer,
@@ -138,6 +143,10 @@ async def test_execute_workflow_langgraph_script_uses_raw_inputs() -> None:
         patch("orcheo_backend.app.create_graph_store", fake_graph_store),
         patch("orcheo_backend.app.build_graph", return_value=mock_graph),
         patch("orcheo_backend.app._history_store_ref", {"store": history_store}),
+        patch(
+            "orcheo_backend.app.workflow_execution.close_browser_sessions_for_scope",
+            new_callable=AsyncMock,
+        ) as mock_browser_cleanup,
     ):
         await execute_workflow(
             "langgraph-workflow",
@@ -146,6 +155,7 @@ async def test_execute_workflow_langgraph_script_uses_raw_inputs() -> None:
             execution_id,
             mock_websocket,
         )
+    mock_browser_cleanup.assert_awaited_once_with(execution_id)
 
     assert isinstance(captured_state, dict)
     assert captured_state["input"] == "raw"
@@ -192,6 +202,10 @@ async def test_execute_workflow_failure_records_error() -> None:
         patch("orcheo_backend.app.create_graph_store", fake_graph_store),
         patch("orcheo_backend.app.build_graph", return_value=mock_graph),
         patch("orcheo_backend.app._history_store_ref", {"store": history_store}),
+        patch(
+            "orcheo_backend.app.workflow_execution.close_browser_sessions_for_scope",
+            new_callable=AsyncMock,
+        ) as mock_browser_cleanup,
     ):
         with pytest.raises(RuntimeError, match="boom"):
             await execute_workflow(
@@ -201,6 +215,7 @@ async def test_execute_workflow_failure_records_error() -> None:
                 "exec-1",
                 mock_websocket,
             )
+    mock_browser_cleanup.assert_awaited_once_with("exec-1")
 
     history = await history_store.get_history("exec-1")
     assert history.status == "error"
@@ -245,6 +260,10 @@ async def test_execute_workflow_cancelled_records_reason() -> None:
         patch("orcheo_backend.app.create_graph_store", fake_graph_store),
         patch("orcheo_backend.app.build_graph", return_value=mock_graph),
         patch("orcheo_backend.app._history_store_ref", {"store": history_store}),
+        patch(
+            "orcheo_backend.app.workflow_execution.close_browser_sessions_for_scope",
+            new_callable=AsyncMock,
+        ) as mock_browser_cleanup,
     ):
         with pytest.raises(asyncio.CancelledError):
             await execute_workflow(
@@ -254,6 +273,7 @@ async def test_execute_workflow_cancelled_records_reason() -> None:
                 "exec-cancel",
                 mock_websocket,
             )
+    mock_browser_cleanup.assert_awaited_once_with("exec-cancel")
 
     history = await history_store.get_history("exec-cancel")
     assert history.status == "cancelled"
