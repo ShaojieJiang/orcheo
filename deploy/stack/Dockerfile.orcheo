@@ -1,7 +1,8 @@
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 WORKDIR /app
 
@@ -25,5 +26,7 @@ RUN chmod +x /usr/local/bin/orcheo-entrypoint
 
 # Always build with --no-cache to ensure latest packages are installed
 RUN uv pip install --system --no-cache -U orcheo orcheo-backend orcheo-sdk
+RUN uv run python -m playwright install --with-deps chromium chromium-headless-shell \
+    && chown -R orcheo:orcheo "$PLAYWRIGHT_BROWSERS_PATH"
 RUN uv tool install --no-cache -U skill-mgr
 ENTRYPOINT ["orcheo-entrypoint"]
