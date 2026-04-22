@@ -2,6 +2,14 @@
 
 from orcheo.nodes.agentensor import AgentensorNode
 from orcheo.nodes.ai import AgentNode, AgentReplyExtractorNode, LLMNode
+from orcheo.nodes.browser import (
+    BrowserActionNode,
+    BrowserCloseNode,
+    BrowserExtractNode,
+    BrowserNavigateNode,
+    BrowserScriptNode,
+    BrowserWaitNode,
+)
 from orcheo.nodes.claude_code import ClaudeCodeNode
 from orcheo.nodes.codex import CodexNode
 from orcheo.nodes.communication import (
@@ -89,6 +97,12 @@ __all__ = [
     "AgentNode",
     "AgentReplyExtractorNode",
     "LLMNode",
+    "BrowserNavigateNode",
+    "BrowserActionNode",
+    "BrowserExtractNode",
+    "BrowserWaitNode",
+    "BrowserScriptNode",
+    "BrowserCloseNode",
     "ClaudeCodeNode",
     "CodexNode",
     "GeminiNode",
