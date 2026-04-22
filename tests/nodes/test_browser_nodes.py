@@ -119,10 +119,12 @@ class FakePage:
         self.function_handle_payload: Any = None
         self.function_handle_disposed = False
 
-    async def goto(self, url: str, **kwargs: Any) -> FakeResponse:
+    async def goto(self, url: str, **kwargs: Any) -> FakeResponse | None:
         self.url = url
         self.title_text = f"Title for {url}"
         self.goto_calls.append({"url": url, **kwargs})
+        if getattr(self, "goto_returns_none", False):
+            return None
         return FakeResponse(url)
 
     async def title(self) -> str:
@@ -552,3 +554,630 @@ def test_configure_playwright_browser_path_keeps_valid_existing_setting(
     browser_nodes._configure_playwright_browser_path("chromium")
 
     assert os.environ["PLAYWRIGHT_BROWSERS_PATH"] == str(configured_root)
+
+
+def test_playwright_browser_root_candidates_dedups_and_prepends_env(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """The candidate list must honour the env var and deduplicate entries."""
+
+    env_root = tmp_path / "env-root"
+    monkeypatch.setenv("PLAYWRIGHT_BROWSERS_PATH", str(env_root))
+    monkeypatch.setattr(
+        browser_nodes,
+        "_PLAYWRIGHT_BROWSER_ROOT_CANDIDATES",
+        (env_root, env_root, Path("/other")),
+    )
+
+    candidates = browser_nodes._playwright_browser_root_candidates()
+
+    assert candidates[0] == env_root
+    assert candidates.count(env_root) == 1
+    assert Path("/other") in candidates
+
+
+def test_contains_playwright_browser_installation_non_directory(
+    tmp_path: Path,
+) -> None:
+    """A non-directory path never contains Playwright browsers."""
+
+    missing = tmp_path / "missing"
+    assert (
+        browser_nodes._contains_playwright_browser_installation(missing, "chromium")
+        is False
+    )
+
+
+def test_contains_playwright_browser_installation_with_matching_subdir(
+    tmp_path: Path,
+) -> None:
+    """A directory with a known browser prefix subdir is a valid install."""
+
+    (tmp_path / "chromium-1234").mkdir()
+    assert (
+        browser_nodes._contains_playwright_browser_installation(tmp_path, "chromium")
+        is True
+    )
+    assert (
+        browser_nodes._contains_playwright_browser_installation(tmp_path, "firefox")
+        is False
+    )
+
+
+def test_async_playwright_factory_returns_playwright_factory() -> None:
+    """The factory helper must return the real Playwright entry point."""
+
+    from playwright.async_api import async_playwright
+
+    assert browser_nodes._async_playwright_factory() is async_playwright
+
+
+def test_configurable_mapping_with_non_dict_returns_empty_dict() -> None:
+    """Non-dict configurable payloads collapse to an empty mapping."""
+
+    config = RunnableConfig(configurable="not-a-dict")  # type: ignore[typeddict-item]
+    assert browser_nodes._configurable_mapping(config) == {}
+
+
+def test_session_scope_prefers_top_level_run_id_when_configurable_missing() -> None:
+    """Top-level run_id is used as the scope when configurable has none."""
+
+    config = RunnableConfig(run_id="top-run")
+    assert browser_nodes._session_scope(config) == "top-run"
+
+
+def test_session_scope_returns_none_when_no_identifiers() -> None:
+    """When no valid thread/run id exists the scope is None."""
+
+    config = RunnableConfig(configurable={"thread_id": "   "})
+    assert browser_nodes._session_scope(config) is None
+
+
+def test_session_scope_skips_non_string_thread_id_and_returns_run_id() -> None:
+    """Non-string thread ids fall through to the run_id lookup."""
+
+    config = RunnableConfig(configurable={"thread_id": 42, "run_id": "alt-run"})  # type: ignore[typeddict-item]
+    assert browser_nodes._session_scope(config) == "alt-run"
+
+
+def test_session_key_without_scope_returns_raw_session_id() -> None:
+    """Without any scope, the session id is returned verbatim."""
+
+    config = RunnableConfig(configurable={})
+    assert browser_nodes._session_key("browser", config) == "browser"
+
+
+def test_page_timeout_kwargs_none_returns_empty_dict() -> None:
+    """A None timeout maps to an empty kwargs dict."""
+
+    assert browser_nodes._page_timeout_kwargs(None) == {}
+
+
+def test_maybe_sequence_converts_tuples_to_lists() -> None:
+    """Tuples are coerced to lists while other types pass through unchanged."""
+
+    assert browser_nodes._maybe_sequence(("a", "b")) == ["a", "b"]
+    assert browser_nodes._maybe_sequence("plain") == "plain"
+    assert browser_nodes._maybe_sequence(None) is None
+
+
+def _session_stub(
+    browser_type: browser_nodes.BrowserEngine,
+) -> browser_nodes.BrowserSession:
+    """Return a minimal BrowserSession that never touches real Playwright objects."""
+
+    return browser_nodes.BrowserSession(
+        browser_type=browser_type,
+        context=object(),
+        browser=object(),
+        page=object(),
+        playwright=object(),
+    )
+
+
+def test_validate_existing_session_rejects_mismatched_engine() -> None:
+    """Reusing a session with a different browser engine raises ValueError."""
+
+    session = _session_stub("chromium")
+    with pytest.raises(ValueError, match="already exists with engine"):
+        browser_nodes.BrowserSessionManager._validate_existing_session(
+            session, key="k", browser_type="firefox"
+        )
+
+
+def test_validate_existing_session_returns_none_for_missing_session() -> None:
+    """A missing session remains None for the caller."""
+
+    assert (
+        browser_nodes.BrowserSessionManager._validate_existing_session(
+            None, key="k", browser_type="chromium"
+        )
+        is None
+    )
+
+
+@pytest.mark.asyncio
+async def test_create_session_raises_for_unsupported_engine(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unknown Playwright engines must fail fast during session creation."""
+
+    class _NoLauncher:
+        async def stop(self) -> None:
+            return None
+
+    class _Ctx:
+        async def start(self) -> _NoLauncher:
+            return _NoLauncher()
+
+    monkeypatch.setattr(
+        browser_nodes,
+        "_async_playwright_factory",
+        lambda: lambda: _Ctx(),
+    )
+    monkeypatch.setattr(
+        browser_nodes,
+        "_configure_playwright_browser_path",
+        lambda _browser_type: None,
+    )
+
+    manager = browser_nodes.BrowserSessionManager()
+    with pytest.raises(ValueError, match="Unsupported browser engine"):
+        await manager._create_session(
+            browser_type="chromium",
+            headless=True,
+            launch_args=[],
+            viewport_width=None,
+            viewport_height=None,
+            user_agent=None,
+            locale=None,
+            timezone_id=None,
+            storage_state=None,
+            extra_http_headers=None,
+            ignore_https_errors=False,
+            java_script_enabled=True,
+            trace_path=None,
+        )
+
+
+@pytest.mark.asyncio
+async def test_get_or_create_fast_path_returns_existing_session(
+    fake_browser_runtime: FakePlaywright,
+) -> None:
+    """A second navigate call with the same key hits the no-lock fast path."""
+
+    del fake_browser_runtime
+    state = State({"results": {}})
+    config = RunnableConfig(configurable={"thread_id": "exec-reuse"})
+    first = await BrowserNavigateNode(name="n1", url="https://example.com/1")(
+        state, config
+    )
+    second = await BrowserNavigateNode(name="n2", url="https://example.com/2")(
+        state, config
+    )
+    assert first["results"]["n1"]["created_session"] is True
+    assert second["results"]["n2"]["created_session"] is False
+
+
+@pytest.mark.asyncio
+async def test_get_or_create_race_condition_returns_existing_in_lock(
+    fake_browser_runtime: FakePlaywright,
+) -> None:
+    """The in-lock re-check returns an existing session without recreating."""
+
+    del fake_browser_runtime
+    manager = browser_nodes.BrowserSessionManager()
+    placeholder = _session_stub("chromium")
+    call_count = 0
+
+    def fake_validate(
+        session: browser_nodes.BrowserSession | None,
+        *,
+        key: str,
+        browser_type: browser_nodes.BrowserEngine,
+    ) -> browser_nodes.BrowserSession | None:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return None
+        return placeholder
+
+    manager._validate_existing_session = fake_validate  # type: ignore[method-assign]
+
+    session, created = await manager.get_or_create(
+        key="k",
+        browser_type="chromium",
+        headless=True,
+        launch_args=[],
+        viewport_width=None,
+        viewport_height=None,
+        user_agent=None,
+        locale=None,
+        timezone_id=None,
+        storage_state=None,
+        extra_http_headers=None,
+        ignore_https_errors=False,
+        java_script_enabled=True,
+        trace_path=None,
+    )
+    assert session is placeholder
+    assert created is False
+
+
+@pytest.mark.asyncio
+async def test_close_returns_false_when_no_session_exists() -> None:
+    """Closing a missing session should report False and not error."""
+
+    manager = browser_nodes.BrowserSessionManager()
+    assert await manager.close("missing") is False
+
+
+@pytest.mark.asyncio
+async def test_close_scope_with_empty_scope_returns_zero() -> None:
+    """An empty scope is a no-op and returns zero sessions closed."""
+
+    manager = browser_nodes.BrowserSessionManager()
+    assert await manager.close_scope("") == 0
+
+
+@pytest.mark.asyncio
+async def test_close_session_stops_tracing_without_path(
+    fake_browser_runtime: FakePlaywright,
+) -> None:
+    """Tracing is stopped with no path when neither override nor session has one."""
+
+    state = State({"results": {}})
+    config = RunnableConfig(configurable={"thread_id": "exec-trace"})
+    # Start tracing by enabling trace_path, then close without any override path.
+    await BrowserNavigateNode(
+        name="navigate",
+        url="https://example.com",
+        trace_path=None,
+    )(state, config)
+    # Manually flip the session to simulate tracing started without a saved path.
+    resolved_key = browser_nodes._session_key("browser", config)
+    session = await browser_nodes._browser_session_manager.get(resolved_key)
+    assert session is not None
+    session.tracing_started = True
+    session.trace_path = None
+
+    closed = await browser_nodes._browser_session_manager.close(resolved_key)
+    assert closed is True
+    assert fake_browser_runtime.context.tracing.stop_path is None
+
+
+@pytest.mark.asyncio
+async def test_close_browser_sessions_for_scope_delegates_to_manager(
+    fake_browser_runtime: FakePlaywright,
+) -> None:
+    """The module-level helper should close all sessions under a scope."""
+
+    del fake_browser_runtime
+    state = State({"results": {}})
+    config = RunnableConfig(configurable={"thread_id": "exec-helper"})
+    await BrowserNavigateNode(name="navigate", url="https://example.com")(state, config)
+
+    closed = await browser_nodes.close_browser_sessions_for_scope("exec-helper")
+    assert closed == 1
+
+
+@pytest.mark.asyncio
+async def test_navigate_tolerates_none_response(
+    fake_browser_runtime: FakePlaywright,
+) -> None:
+    """page.goto returning None must surface as a null response payload."""
+
+    fake_browser_runtime.page.goto_returns_none = True  # type: ignore[attr-defined]
+    state = State({"results": {}})
+    config = RunnableConfig(configurable={"thread_id": "exec-none"})
+    payload = (
+        await BrowserNavigateNode(name="navigate", url="about:blank")(state, config)
+    )["results"]["navigate"]
+    assert payload["response"] is None
+
+
+@pytest.mark.asyncio
+async def test_browser_action_node_exercises_all_actions(
+    fake_browser_runtime: FakePlaywright,
+) -> None:
+    """Every supported action routes through its locator counterpart."""
+
+    state = State({"results": {}})
+    config = RunnableConfig(configurable={"thread_id": "exec-actions"})
+    await BrowserNavigateNode(name="navigate", url="https://example.com")(state, config)
+    page = fake_browser_runtime.page
+
+    await BrowserActionNode(name="click", action="click", locator="#btn")(state, config)
+    await BrowserActionNode(
+        name="press", action="press", locator="#input", value="Enter"
+    )(state, config)
+    await BrowserActionNode(name="check", action="check", locator="#chk")(state, config)
+    await BrowserActionNode(name="uncheck", action="uncheck", locator="#chk")(
+        state, config
+    )
+    await BrowserActionNode(name="hover", action="hover", locator="#hv")(state, config)
+    await BrowserActionNode(
+        name="select",
+        action="select_option",
+        locator="#sel",
+        value=("a", "b"),
+    )(state, config)
+    await BrowserActionNode(
+        name="upload",
+        action="set_input_files",
+        locator="#file",
+        value=("/tmp/a.txt", "/tmp/b.txt"),
+    )(state, config)
+
+    recorded_actions = [record[0] for record in page.actions]
+    assert recorded_actions == [
+        "click",
+        "press",
+        "check",
+        "uncheck",
+        "hover",
+        "select_option",
+        "set_input_files",
+    ]
+    select_record = next(r for r in page.actions if r[0] == "select_option")
+    upload_record = next(r for r in page.actions if r[0] == "set_input_files")
+    assert select_record[2] == ["a", "b"]
+    assert upload_record[2] == ["/tmp/a.txt", "/tmp/b.txt"]
+
+
+@pytest.mark.asyncio
+async def test_browser_action_node_validates_required_values(
+    fake_browser_runtime: FakePlaywright,
+) -> None:
+    """Actions that need a value raise when one is not provided."""
+
+    state = State({"results": {}})
+    config = RunnableConfig(configurable={"thread_id": "exec-action-errors"})
+    await BrowserNavigateNode(name="navigate", url="https://example.com")(state, config)
+
+    fill_missing = BrowserActionNode(
+        name="fill_missing", action="fill", locator="#input", value=None
+    )
+    with pytest.raises(ValueError, match="fill requires a string"):
+        await fill_missing(state, config)
+
+    press_missing = BrowserActionNode(
+        name="press_missing", action="press", locator="#input", value=None
+    )
+    with pytest.raises(ValueError, match="press requires a string"):
+        await press_missing(state, config)
+
+    select_missing = BrowserActionNode(
+        name="select_missing",
+        action="select_option",
+        locator="#sel",
+        value=None,
+    )
+    with pytest.raises(ValueError, match="select_option requires"):
+        await select_missing(state, config)
+
+    upload_missing = BrowserActionNode(
+        name="upload_missing",
+        action="set_input_files",
+        locator="#file",
+        value=None,
+    )
+    with pytest.raises(ValueError, match="set_input_files requires"):
+        await upload_missing(state, config)
+
+
+@pytest.mark.asyncio
+async def test_browser_extract_node_supports_every_mode(
+    fake_browser_runtime: FakePlaywright,
+) -> None:
+    """Every extraction mode produces the expected structured payload."""
+
+    state = State({"results": {}})
+    config = RunnableConfig(configurable={"thread_id": "exec-extracts"})
+    await BrowserNavigateNode(name="navigate", url="https://example.com")(state, config)
+
+    title_payload = (
+        await BrowserExtractNode(name="title", mode="title")(state, config)
+    )["results"]["title"]
+    assert title_payload["value"] == "Title for https://example.com"
+
+    url_payload = (await BrowserExtractNode(name="url", mode="url")(state, config))[
+        "results"
+    ]["url"]
+    assert url_payload["value"] == "https://example.com"
+
+    content_payload = (
+        await BrowserExtractNode(name="content", mode="page_content")(state, config)
+    )["results"]["content"]
+    assert content_payload["value"] == fake_browser_runtime.page.page_content
+
+    text_payload = (
+        await BrowserExtractNode(name="text", mode="text", locator="#result")(
+            state, config
+        )
+    )["results"]["text"]
+    assert text_payload["value"] == "Orcheo"
+
+    all_text_payload = (
+        await BrowserExtractNode(name="all_text", mode="all_text", locator="li.item")(
+            state, config
+        )
+    )["results"]["all_text"]
+    assert all_text_payload["value"] == ["one", "two"]
+
+    html_payload = (
+        await BrowserExtractNode(name="html", mode="html", locator="#result")(
+            state, config
+        )
+    )["results"]["html"]
+    assert html_payload["value"] == "<span>Orcheo</span>"
+
+
+@pytest.mark.asyncio
+async def test_browser_extract_node_validates_locator_and_attribute(
+    fake_browser_runtime: FakePlaywright,
+) -> None:
+    """Element-based extraction modes require locator and attribute arguments."""
+
+    state = State({"results": {}})
+    config = RunnableConfig(configurable={"thread_id": "exec-extract-errors"})
+    await BrowserNavigateNode(name="navigate", url="https://example.com")(state, config)
+
+    missing_locator = BrowserExtractNode(name="bad", mode="text", locator="   ")
+    with pytest.raises(ValueError, match="requires a locator"):
+        await missing_locator(state, config)
+
+    missing_attr = BrowserExtractNode(
+        name="bad_attr", mode="attribute", locator="#result", attribute_name=None
+    )
+    with pytest.raises(ValueError, match="requires attribute_name"):
+        await missing_attr(state, config)
+
+
+@pytest.mark.asyncio
+async def test_browser_wait_node_supports_url_load_state_and_timeout(
+    fake_browser_runtime: FakePlaywright,
+) -> None:
+    """URL, load_state, and timeout waits delegate to Playwright accordingly."""
+
+    state = State({"results": {}})
+    config = RunnableConfig(configurable={"thread_id": "exec-waits"})
+    await BrowserNavigateNode(name="navigate", url="https://example.com")(state, config)
+    page = fake_browser_runtime.page
+
+    url_payload = (
+        await BrowserWaitNode(
+            name="wait_url",
+            wait_for="url",
+            url_pattern="**/dashboard",
+            wait_until="load",
+        )(state, config)
+    )["results"]["wait_url"]
+    assert url_payload["value"] == {"url_pattern": "**/dashboard"}
+    assert any(
+        call[0] == "url" and call[2].get("wait_until") == "load"
+        for call in page.wait_calls
+    )
+
+    url_no_wait_until = (
+        await BrowserWaitNode(
+            name="wait_url_plain",
+            wait_for="url",
+            url_pattern="**/home",
+        )(state, config)
+    )["results"]["wait_url_plain"]
+    assert url_no_wait_until["value"] == {"url_pattern": "**/home"}
+    plain_calls = [c for c in page.wait_calls if c[0] == "url" and c[1] == "**/home"]
+    assert plain_calls and "wait_until" not in plain_calls[-1][2]
+
+    load_state_payload = (
+        await BrowserWaitNode(
+            name="wait_load", wait_for="load_state", load_state="networkidle"
+        )(state, config)
+    )["results"]["wait_load"]
+    assert load_state_payload["value"] == {"load_state": "networkidle"}
+
+    timeout_payload = (
+        await BrowserWaitNode(name="wait_timeout", wait_for="timeout", timeout_ms=12.5)(
+            state, config
+        )
+    )["results"]["wait_timeout"]
+    assert timeout_payload["value"] == {"timeout_ms": 12.5}
+
+
+@pytest.mark.asyncio
+async def test_browser_wait_node_validates_inputs(
+    fake_browser_runtime: FakePlaywright,
+) -> None:
+    """Wait nodes must raise when their required inputs are missing or blank."""
+
+    state = State({"results": {}})
+    config = RunnableConfig(configurable={"thread_id": "exec-wait-errors"})
+    await BrowserNavigateNode(name="navigate", url="https://example.com")(state, config)
+
+    with pytest.raises(ValueError, match="selector requires a locator"):
+        await BrowserWaitNode(name="bad_selector", wait_for="selector", locator="   ")(
+            state, config
+        )
+
+    with pytest.raises(ValueError, match="url requires url_pattern"):
+        await BrowserWaitNode(name="bad_url", wait_for="url", url_pattern=" ")(
+            state, config
+        )
+
+    with pytest.raises(ValueError, match="function requires expression"):
+        await BrowserWaitNode(name="bad_fn", wait_for="function", expression=None)(
+            state, config
+        )
+
+    with pytest.raises(ValueError, match="timeout requires timeout_ms"):
+        await BrowserWaitNode(name="bad_timeout", wait_for="timeout", timeout_ms=None)(
+            state, config
+        )
+
+
+@pytest.mark.asyncio
+async def test_browser_wait_response_predicate_matches_and_rejects(
+    fake_browser_runtime: FakePlaywright,
+) -> None:
+    """Response predicate honours exact URL matching, status, and mismatches."""
+
+    state = State({"results": {}})
+    config = RunnableConfig(configurable={"thread_id": "exec-response"})
+    await BrowserNavigateNode(name="navigate", url="https://example.com")(state, config)
+
+    exact_node = BrowserWaitNode(
+        name="exact_node",
+        wait_for="response",
+        response_url="https://example.com/api/ready",
+        response_match_mode="exact",
+    )
+    assert exact_node._response_matches(fake_browser_runtime.page.response_to_wait)
+
+    status_none_node = BrowserWaitNode(
+        name="any_status",
+        wait_for="response",
+        response_url="https://example.com/api/ready",
+        response_match_mode="exact",
+        response_status=None,
+    )
+    assert status_none_node._response_matches(
+        fake_browser_runtime.page.response_to_wait
+    )
+
+    mismatch_node = BrowserWaitNode(
+        name="mismatch",
+        wait_for="response",
+        response_url="https://example.com/other",
+        response_match_mode="exact",
+    )
+    assert (
+        mismatch_node._response_matches(fake_browser_runtime.page.response_to_wait)
+        is False
+    )
+
+    missing_url = BrowserWaitNode(
+        name="missing",
+        wait_for="response",
+        response_url="   ",
+    )
+    with pytest.raises(ValueError, match="response requires response_url"):
+        missing_url._response_matches(fake_browser_runtime.page.response_to_wait)
+
+
+@pytest.mark.asyncio
+async def test_browser_script_node_without_arg(
+    fake_browser_runtime: FakePlaywright,
+) -> None:
+    """Scripts with no argument evaluate the expression on its own."""
+
+    state = State({"results": {}})
+    config = RunnableConfig(configurable={"thread_id": "exec-script-noarg"})
+    await BrowserNavigateNode(name="navigate", url="https://example.com")(state, config)
+
+    payload = (
+        await BrowserScriptNode(name="script", script="() => 42")(state, config)
+    )["results"]["script"]
+    assert payload["value"] == {"script": "() => 42", "arg": None}
+    assert fake_browser_runtime.page.evaluate_calls[-1] == ("() => 42", None)
