@@ -154,6 +154,52 @@ def test_run_stack_plugin_passthrough_doctor_error(
         )
 
 
+def test_run_stack_subprocess_streaming_requires_docker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(plugin_module.shutil, "which", lambda _: None)
+    with pytest.raises(typer.BadParameter):
+        plugin_module._run_stack_subprocess_streaming(["cmd"])
+
+
+def test_run_stack_subprocess_streaming_with_explicit_exit_codes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(plugin_module.shutil, "which", lambda _: "/usr/bin/docker")
+
+    def fake_run(
+        command: list[str], *, check: bool
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(plugin_module.subprocess, "run", fake_run)
+    returncode = plugin_module._run_stack_subprocess_streaming(
+        ["cmd"], expected_exit_codes={0, 1}
+    )
+    assert returncode == 0
+
+
+def test_run_stack_plugin_passthrough_human_doctor_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        plugin_module, "_stack_plugin_command", lambda *, args, human: ["cmd"]
+    )
+
+    def fake_streaming(
+        command: list[str], *, expected_exit_codes: set[int] | None = None
+    ) -> int:
+        return 1
+
+    monkeypatch.setattr(
+        plugin_module, "_run_stack_subprocess_streaming", fake_streaming
+    )
+    state = DummyState(human=True)
+    with pytest.raises(typer.Exit) as excinfo:
+        plugin_module._run_stack_plugin_passthrough(args=["doctor"], state=state)
+    assert excinfo.value.exit_code == 1
+
+
 def test_is_local_plugin_ref_detects_variants(tmp_path: Path) -> None:
     file_path = tmp_path / "plugin.txt"
     file_path.write_text("x", encoding="utf-8")
@@ -583,32 +629,23 @@ def test_install_command_stack_path_renders_human_output(
     monkeypatch.setattr(plugin_module, "_use_stack_runtime", lambda runtime: True)
     monkeypatch.setattr(plugin_module, "_state", lambda ctx: DummyState(human=True))
     monkeypatch.setattr(plugin_module, "_is_local_plugin_ref", lambda ref: False)
-    payload = {
-        "plugin": {"name": "pkg"},
-        "impact": {
-            "change_type": "install",
-            "affected_component_kinds": ["nodes"],
-            "affected_component_ids": ["node"],
-            "activation_mode": "silent",
-            "prompt_required": False,
-            "restart_required": True,
-        },
-    }
-    monkeypatch.setattr(plugin_module, "_run_stack_plugin_json", lambda args: payload)
+    passthrough_calls: list[list[str]] = []
+
+    def fake_passthrough(*, args: list[str], state: DummyState) -> None:
+        passthrough_calls.append(args)
+
     monkeypatch.setattr(
-        plugin_module, "_restart_running_stack_services", lambda state: None
+        plugin_module, "_run_stack_plugin_passthrough", fake_passthrough
     )
-    renders: list[dict[str, object]] = []
+    restarted: list[bool] = []
     monkeypatch.setattr(
-        plugin_module, "render_json", lambda console, data, title: renders.append(data)
-    )
-    impacts: list[PluginImpactSummary] = []
-    monkeypatch.setattr(
-        plugin_module, "_render_impact", lambda state, impact: impacts.append(impact)
+        plugin_module,
+        "_restart_running_stack_services",
+        lambda state: restarted.append(True),
     )
     runner.invoke(plugin_module.plugin_app, ["install", "pkg"], env=env)
-    assert renders
-    assert impacts
+    assert passthrough_calls == [["install", "pkg"]]
+    assert restarted
 
 
 @pytest.mark.parametrize(

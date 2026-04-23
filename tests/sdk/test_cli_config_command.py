@@ -1006,3 +1006,65 @@ def test_config_list_does_not_run_configure_callback(
     config_dir.mkdir(parents=True, exist_ok=True)
     result = runner.invoke(app, ["--human", "config", "list"], env=env_no_token)
     assert result.exit_code == 0
+
+
+def test_config_list_invalid_toml(
+    runner: CliRunner, env: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """config list raises CLIError when load_profiles raises TOMLDecodeError."""
+    import tomllib as _tomllib
+    from orcheo_sdk.cli import config_command
+    from orcheo_sdk.cli.errors import CLIError
+
+    try:
+        _tomllib.loads("[[invalid")
+    except _tomllib.TOMLDecodeError as exc:
+        toml_error = exc
+
+    def raise_toml_error(path: Path) -> dict:
+        raise toml_error
+
+    monkeypatch.setattr(config_command, "load_profiles", raise_toml_error)
+    result = runner.invoke(app, ["--human", "config", "list"], env=env)
+    assert result.exit_code != 0
+    assert isinstance(result.exception, CLIError)
+    assert "Invalid TOML" in str(result.exception)
+
+
+def test_config_list_no_profiles_machine_mode(
+    runner: CliRunner, machine_env: dict[str, str]
+) -> None:
+    """config list in machine mode returns JSON with empty profiles dict."""
+    import json as _json
+
+    result = runner.invoke(app, ["config", "list"], env=machine_env)
+    assert result.exit_code == 0
+    data = _json.loads(result.output)
+    assert data == {"profiles": {}}
+
+
+def test_config_list_shows_oauth_only_profile(
+    runner: CliRunner, env: dict[str, str]
+) -> None:
+    """config list in human mode shows oauth fields and omits service_token when absent."""  # noqa: E501
+    config_path = Path(env["ORCHEO_CONFIG_DIR"]) / CONFIG_FILENAME
+    config_path.write_text(
+        "\n".join(
+            [
+                "[profiles.default]",
+                'api_url = "http://api.test"',
+                'auth_issuer = "https://issuer.example.com"',
+                'auth_client_id = "my-client"',
+                'auth_audience = "https://api.example.com"',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    no_token_env = {**env, "ORCHEO_SERVICE_TOKEN": ""}
+    result = runner.invoke(app, ["--human", "config", "list"], env=no_token_env)
+    assert result.exit_code == 0
+    assert "auth-issuer" in result.output
+    assert "auth-client-id" in result.output
+    assert "auth-audience" in result.output
+    assert "service-token" not in result.output

@@ -962,3 +962,41 @@ def test_print_summary_public_ingress():
     assert "Setup complete" in output
     assert "https://orcheo.example.com" in output
     assert "localhost:5173" not in output
+
+
+def test_resolve_public_ingress_enabled_upgrade_mode_unparseable_existing(
+    tmp_path: Path,
+) -> None:
+    """Covers line 616->618: upgrade path with unparseable existing value falls through to yes."""  # noqa: E501
+    env_file = tmp_path / ".env"
+    env_file.write_text("ORCHEO_PUBLIC_INGRESS_ENABLED=\n", encoding="utf-8")
+    result = setup._resolve_public_ingress_enabled(
+        None, yes=True, env_file=env_file, env_exists=True, mode="upgrade"
+    )
+    assert result is False
+
+
+def test_resolve_public_ingress_enabled_env_exists_sets_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Covers lines 622-626: existing env value used as confirm default."""
+    env_file = tmp_path / ".env"
+    env_file.write_text("ORCHEO_PUBLIC_INGRESS_ENABLED=true\n", encoding="utf-8")
+    monkeypatch.setattr(setup.typer, "confirm", lambda *args, **kwargs: True)
+    result = setup._resolve_public_ingress_enabled(
+        None, yes=False, env_file=env_file, env_exists=True, mode="install"
+    )
+    assert result is True
+
+
+def test_resolve_public_ingress_enabled_env_exists_unparseable_uses_false_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Covers line 625->627: env exists but value is unparseable, confirm defaults to False."""  # noqa: E501
+    env_file = tmp_path / ".env"
+    env_file.write_text("ORCHEO_PUBLIC_INGRESS_ENABLED=\n", encoding="utf-8")
+    monkeypatch.setattr(setup.typer, "confirm", lambda *args, **kwargs: False)
+    result = setup._resolve_public_ingress_enabled(
+        None, yes=False, env_file=env_file, env_exists=True, mode="install"
+    )
+    assert result is False
