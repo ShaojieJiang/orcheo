@@ -32,9 +32,21 @@ const nodeHasCronTrigger = (
 export const hasSchedulableCronTrigger = (
   nodes: WorkflowCanvasCore["history"]["nodes"],
   versions: WorkflowVersionRecord[],
-): boolean =>
-  nodes.some(nodeHasCronTrigger) ||
-  versions.some((version) => version.hasCronTrigger === true);
+): boolean => {
+  if (nodes.some(nodeHasCronTrigger)) {
+    return true;
+  }
+
+  const latestVersion = versions.reduce<WorkflowVersionRecord | undefined>(
+    (latest, current) =>
+      !latest || current.versionNumber > latest.versionNumber
+        ? current
+        : latest,
+    undefined,
+  );
+
+  return latestVersion?.hasCronTrigger === true;
+};
 
 export interface WorkflowLayoutProps {
   topNavigationProps: {
