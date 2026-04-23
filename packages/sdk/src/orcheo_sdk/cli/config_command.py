@@ -36,6 +36,7 @@ from orcheo_sdk.cli.state import CLIState
 config_app = typer.Typer(
     name="config",
     help="Write CLI profile settings to the Orcheo config file.",
+    invoke_without_command=True,
 )
 
 EnvFileOption = Annotated[
@@ -306,7 +307,7 @@ def _resolve_profiles_with_overrides(
     return resolved_profiles
 
 
-@config_app.callback(invoke_without_command=True)
+@config_app.callback()
 def configure(
     ctx: typer.Context,
     api_url: Annotated[
@@ -354,6 +355,9 @@ def configure(
     ] = False,
 ) -> None:
     """Write CLI profile configuration to ``cli.toml``."""
+    if ctx.invoked_subcommand is not None:
+        return
+
     state = _state(ctx)
 
     env_data = _read_env_file(env_file) if env_file else None
@@ -420,3 +424,54 @@ def configure(
     state.console.print(
         f"[green]Updated {len(profile_names)} profile(s) in {config_path}.[/green]"
     )
+
+
+def _profile_summary(data: dict[str, Any]) -> dict[str, Any]:
+    """Return a redacted summary dict for a single profile."""
+    summary: dict[str, Any] = {"api_url": data.get("api_url", "")}
+    if service_token := data.get("service_token"):
+        summary["service_token"] = _redact_value(str(service_token))
+    if auth_issuer := data.get(AUTH_ISSUER_KEY):
+        summary[AUTH_ISSUER_KEY] = str(auth_issuer)
+    if auth_client_id := data.get(AUTH_CLIENT_ID_KEY):
+        summary[AUTH_CLIENT_ID_KEY] = _redact_value(str(auth_client_id))
+    if auth_audience := data.get(AUTH_AUDIENCE_KEY):
+        summary[AUTH_AUDIENCE_KEY] = str(auth_audience)
+    return summary
+
+
+@config_app.command("list")
+def list_config_profiles(ctx: typer.Context) -> None:
+    """List all configured CLI profiles."""
+    state = _state(ctx)
+    config_path = get_config_dir() / CONFIG_FILENAME
+    try:
+        profiles = load_profiles(config_path)
+    except tomllib.TOMLDecodeError as exc:
+        raise CLIError(f"Invalid TOML in {config_path}.") from exc
+
+    if not profiles:
+        if not state.human:
+            print_json({"profiles": {}})
+        else:
+            state.console.print("[dim]No profiles configured.[/dim]")
+            state.console.print(f"[dim]Config: {config_path}[/dim]")
+        return
+
+    summaries = {name: _profile_summary(profiles[name]) for name in sorted(profiles)}
+    if not state.human:
+        print_json({"profiles": summaries})
+        return
+
+    state.console.print(f"[dim]Config: {config_path}[/dim]")
+    for name, summary in summaries.items():
+        state.console.print(f"\n[bold]{name}[/bold]")
+        state.console.print(f"  api-url: {summary.get('api_url', '(not set)')}")
+        if token := summary.get("service_token"):
+            state.console.print(f"  service-token: {token}")
+        if issuer := summary.get(AUTH_ISSUER_KEY):
+            state.console.print(f"  auth-issuer: {issuer}")
+        if client_id := summary.get(AUTH_CLIENT_ID_KEY):
+            state.console.print(f"  auth-client-id: {client_id}")
+        if audience := summary.get(AUTH_AUDIENCE_KEY):
+            state.console.print(f"  auth-audience: {audience}")

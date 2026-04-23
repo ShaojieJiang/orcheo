@@ -63,7 +63,7 @@ def test_run_stack_subprocess_defaults_to_zero(monkeypatch: pytest.MonkeyPatch) 
     assert result.returncode == 0
 
 
-def test_run_stack_plugin_passthrough_prints_to_console(
+def test_run_stack_plugin_passthrough_streams_for_human_mode(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     state = _make_cli_state(human=True)
@@ -73,15 +73,19 @@ def test_run_stack_plugin_passthrough_prints_to_console(
         lambda *, args, human: ["dummy"],
     )
 
-    def fake_subprocess(
-        command: list[str], *, expected_exit_codes: set[int] | None = None
-    ) -> subprocess.CompletedProcess[str]:
-        del expected_exit_codes
-        return subprocess.CompletedProcess(command, 0, stdout="hello\n")
+    called_with: list[list[str]] = []
 
-    monkeypatch.setattr(plugin_module, "_run_stack_subprocess", fake_subprocess)
+    def fake_streaming(
+        command: list[str], *, expected_exit_codes: set[int] | None = None
+    ) -> int:
+        called_with.append(command)
+        return 0
+
+    monkeypatch.setattr(
+        plugin_module, "_run_stack_subprocess_streaming", fake_streaming
+    )
     plugin_module._run_stack_plugin_passthrough(args=["list"], state=state)
-    assert "hello" in state.console.export_text()
+    assert called_with == [["dummy"]]
 
 
 def test_run_stack_plugin_passthrough_uses_typer_echo(
@@ -131,6 +135,69 @@ def test_run_stack_plugin_passthrough_doctor_raises_exit(
     with pytest.raises(typer.Exit) as excinfo:
         plugin_module._run_stack_plugin_passthrough(args=["doctor"], state=state)
     assert excinfo.value.exit_code == 1
+
+
+def test_run_stack_subprocess_streaming_calls_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "orcheo_sdk.cli.plugin.shutil.which", lambda _: "/usr/bin/docker"
+    )
+
+    def fake_run(
+        command: list[str], *, check: bool
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr("orcheo_sdk.cli.plugin.subprocess.run", fake_run)
+    returncode = plugin_module._run_stack_subprocess_streaming(["docker", "ps"])
+    assert returncode == 0
+
+
+def test_run_stack_subprocess_streaming_raises_on_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "orcheo_sdk.cli.plugin.shutil.which", lambda _: "/usr/bin/docker"
+    )
+
+    def fake_run(
+        command: list[str], *, check: bool
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(command, 1)
+
+    monkeypatch.setattr("orcheo_sdk.cli.plugin.subprocess.run", fake_run)
+    with pytest.raises(typer.BadParameter):
+        plugin_module._run_stack_subprocess_streaming(["docker", "fail"])
+
+
+def test_install_plugin_stack_runtime_human_streams(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = MagicMock()
+    state.human = True
+    passthrough_calls: list[tuple[list[str], Any]] = []
+
+    def capture_passthrough(*, args: list[str], state: Any) -> None:
+        passthrough_calls.append((args, state))
+
+    restarts: list[Any] = []
+
+    monkeypatch.setattr(plugin_module, "_state", lambda ctx: state)
+    monkeypatch.setattr(plugin_module, "_use_stack_runtime", lambda runtime: True)
+    monkeypatch.setattr(plugin_module, "_is_local_plugin_ref", lambda ref: False)
+    monkeypatch.setattr(
+        plugin_module, "_run_stack_plugin_passthrough", capture_passthrough
+    )
+    monkeypatch.setattr(
+        plugin_module,
+        "_restart_running_stack_services",
+        lambda s: restarts.append(s),
+    )
+    plugin_module.install_plugin(None, "example-ref", runtime="auto")
+    assert len(passthrough_calls) == 1
+    assert passthrough_calls[0][0] == ["install", "example-ref"]
+    assert restarts == [state]
 
 
 def test_install_plugin_stack_runtime_restart(monkeypatch: pytest.MonkeyPatch) -> None:

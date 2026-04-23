@@ -218,14 +218,9 @@ def main(
         )
 
 
-def _install_agent_skills(*, console: Console, yes: bool) -> None:
-    """Prompt to install the Orcheo skill into Claude Code and Codex via skill-mgr."""
-    if yes:
-        return
-    if not typer.confirm(
-        "\nInstall Orcheo skill for Claude Code and Codex?",
-        default=True,
-    ):
+def _install_agent_skills(*, console: Console, should_install: bool) -> None:
+    """Install the Orcheo skill into Claude Code and Codex via skill-mgr."""
+    if not should_install:
         return
     skill_mgr_bin = shutil.which("skill-mgr")
     if skill_mgr_bin:
@@ -280,7 +275,7 @@ def _run_install_flow(
     )
     execute_setup(config, console=console, stack_version=stack_version)
     print_summary(config, console=console)
-    _install_agent_skills(console=console, yes=yes)
+    _install_agent_skills(console=console, should_install=config.install_agent_skills)
 
 
 def _resolve_install_console(ctx: typer.Context) -> Console:

@@ -169,7 +169,7 @@ export default function SidebarLayout({
   });
 
   return (
-    <div className={cn("flex h-full min-h-0", className)}>
+    <div className={cn("flex h-full min-h-0 overflow-hidden", className)}>
       {position === "left" && (
         <>
           <aside

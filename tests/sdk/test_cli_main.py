@@ -765,29 +765,13 @@ def test_main_skips_update_check_when_disabled(
     assert isinstance(ctx.obj, CLIState)
 
 
-def test_install_agent_skills_yes_skips_all(monkeypatch: pytest.MonkeyPatch) -> None:
-    """_install_agent_skills returns immediately when yes=True."""
+def test_install_agent_skills_skips_when_false(monkeypatch: pytest.MonkeyPatch) -> None:
+    """_install_agent_skills returns immediately when should_install=False."""
     console = Console()
     monkeypatch.setattr(
         main_mod.shutil, "which", lambda name: pytest.fail("should not check")
     )
-    main_mod._install_agent_skills(console=console, yes=True)
-
-
-def test_install_agent_skills_confirm_declined(monkeypatch: pytest.MonkeyPatch) -> None:
-    """_install_agent_skills returns without running subprocess when user declines."""
-    import io
-
-    console = Console(file=io.StringIO())
-    monkeypatch.setattr(main_mod.typer, "confirm", lambda *args, **kwargs: False)
-    ran: list[object] = []
-    monkeypatch.setattr(
-        main_mod.subprocess,
-        "run",
-        lambda *a, **kw: ran.append(a) or type("R", (), {"returncode": 0})(),
-    )
-    main_mod._install_agent_skills(console=console, yes=False)
-    assert ran == []
+    main_mod._install_agent_skills(console=console, should_install=False)
 
 
 def test_install_agent_skills_with_skill_mgr_found(
@@ -797,7 +781,6 @@ def test_install_agent_skills_with_skill_mgr_found(
     import io
 
     console = Console(file=io.StringIO())
-    monkeypatch.setattr(main_mod.typer, "confirm", lambda *args, **kwargs: True)
     monkeypatch.setattr(
         main_mod.shutil,
         "which",
@@ -811,7 +794,7 @@ def test_install_agent_skills_with_skill_mgr_found(
         return type("R", (), {"returncode": 0})()
 
     monkeypatch.setattr(main_mod.subprocess, "run", fake_run)
-    main_mod._install_agent_skills(console=console, yes=False)
+    main_mod._install_agent_skills(console=console, should_install=True)
     assert ran_cmds[0][0] == "/usr/bin/skill-mgr"
 
 
@@ -822,7 +805,6 @@ def test_install_agent_skills_without_skill_mgr_falls_back_to_uv(
     import io
 
     console = Console(file=io.StringIO())
-    monkeypatch.setattr(main_mod.typer, "confirm", lambda *args, **kwargs: True)
     monkeypatch.setattr(main_mod.shutil, "which", lambda name: None)
 
     ran_cmds: list[list[str]] = []
@@ -832,7 +814,7 @@ def test_install_agent_skills_without_skill_mgr_falls_back_to_uv(
         return type("R", (), {"returncode": 0})()
 
     monkeypatch.setattr(main_mod.subprocess, "run", fake_run)
-    main_mod._install_agent_skills(console=console, yes=False)
+    main_mod._install_agent_skills(console=console, should_install=True)
     assert ran_cmds[0][:2] == ["uv", "run"]
 
 
@@ -844,14 +826,13 @@ def test_install_agent_skills_nonzero_exit_prints_warning(
 
     out = io.StringIO()
     console = Console(file=out, no_color=True, highlight=False)
-    monkeypatch.setattr(main_mod.typer, "confirm", lambda *args, **kwargs: True)
     monkeypatch.setattr(main_mod.shutil, "which", lambda name: None)
 
     def fake_run(cmd: list[str], **kwargs: object) -> object:
         return type("R", (), {"returncode": 1})()
 
     monkeypatch.setattr(main_mod.subprocess, "run", fake_run)
-    main_mod._install_agent_skills(console=console, yes=False)
+    main_mod._install_agent_skills(console=console, should_install=True)
     assert (
         "Warning" in out.getvalue()
         or "warning" in out.getvalue().lower()

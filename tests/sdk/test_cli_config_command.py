@@ -392,6 +392,7 @@ def test_config_command_invalid_toml(
     mock_state = MagicMock()
     mock_state.console = Console()
     mock_ctx = MagicMock(spec=Context)
+    mock_ctx.invoked_subcommand = None
     mock_ctx.ensure_object.return_value = mock_state
 
     with pytest.raises(CLIError) as exc_info:
@@ -438,6 +439,7 @@ def test_config_command_incomplete_oauth_issuer_only(
     mock_state = MagicMock()
     mock_state.console = Console()
     mock_ctx = MagicMock(spec=Context)
+    mock_ctx.invoked_subcommand = None
     mock_ctx.ensure_object.return_value = mock_state
 
     with pytest.raises(CLIError, match="auth_client_id"):
@@ -487,6 +489,7 @@ def test_config_command_incomplete_oauth_client_id_only(
     mock_state = MagicMock()
     mock_state.console = Console()
     mock_ctx = MagicMock(spec=Context)
+    mock_ctx.invoked_subcommand = None
     mock_ctx.ensure_object.return_value = mock_state
 
     with pytest.raises(CLIError, match="auth_issuer"):
@@ -536,6 +539,7 @@ def test_config_command_incomplete_oauth_missing_audience(
     mock_state = MagicMock()
     mock_state.console = Console()
     mock_ctx = MagicMock(spec=Context)
+    mock_ctx.invoked_subcommand = None
     mock_ctx.ensure_object.return_value = mock_state
 
     with pytest.raises(CLIError, match="auth_audience"):
@@ -956,3 +960,49 @@ def test_config_command_allows_setting_only_missing_oauth_field_on_existing_prof
     assert profile["auth_issuer"] == "https://auth.example.com"
     assert profile["auth_client_id"] == "my-client"
     assert profile["auth_audience"] == "https://api.example.com"
+
+
+def test_config_list_no_profiles(runner: CliRunner, env: dict[str, str]) -> None:
+    """config list shows empty message when no profiles are written yet."""
+    config_dir = Path(env["ORCHEO_CONFIG_DIR"])
+    config_dir.mkdir(parents=True, exist_ok=True)
+    result = runner.invoke(app, ["--human", "config", "list"], env=env)
+    assert result.exit_code == 0
+    assert "No profiles" in result.output
+
+
+def test_config_list_shows_profiles(runner: CliRunner, env: dict[str, str]) -> None:
+    """config list shows profile api_url and redacts the service token."""
+    runner.invoke(app, ["config"], env=env)
+    result = runner.invoke(app, ["--human", "config", "list"], env=env)
+    assert result.exit_code == 0
+    assert env["ORCHEO_API_URL"] in result.output
+    assert "..." in result.output
+
+
+def test_config_list_machine_mode_json(
+    runner: CliRunner, machine_env: dict[str, str]
+) -> None:
+    """config list in machine mode outputs valid JSON with profiles key."""
+    import json as _json
+
+    runner.invoke(app, ["config"], env=machine_env)
+    result = runner.invoke(app, ["config", "list"], env=machine_env)
+    assert result.exit_code == 0
+    payload = _json.loads(result.output)
+    assert "profiles" in payload
+    assert "default" in payload["profiles"]
+    assert payload["profiles"]["default"]["api_url"] == machine_env["ORCHEO_API_URL"]
+
+
+def test_config_list_does_not_run_configure_callback(
+    runner: CliRunner, env: dict[str, str]
+) -> None:
+    """Invoking 'config list' must not trigger the configure write callback."""
+    env_no_token = {**env}
+    env_no_token.pop("ORCHEO_SERVICE_TOKEN", None)
+    env_no_token.pop("ORCHEO_API_URL", None)
+    config_dir = Path(env["ORCHEO_CONFIG_DIR"])
+    config_dir.mkdir(parents=True, exist_ok=True)
+    result = runner.invoke(app, ["--human", "config", "list"], env=env_no_token)
+    assert result.exit_code == 0

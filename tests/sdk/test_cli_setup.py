@@ -491,7 +491,7 @@ def test_setup_resolution_helpers_cover_env_branches(
 
     assert (
         setup._resolve_public_ingress_enabled(
-            None, yes=False, env_file=env_file, env_exists=True
+            None, yes=False, env_file=env_file, env_exists=True, mode="upgrade"
         )
         is True
     )
@@ -936,3 +936,29 @@ def test_print_summary():
     output = console.file.getvalue()
     assert "Setup complete" in output
     assert "Canvas may take" in output
+    assert "localhost:5173" in output
+
+
+def test_print_summary_public_ingress():
+    console = make_console()
+    config = setup.SetupConfig(
+        mode="install",
+        backend_url="https://orcheo.example.com",
+        auth_mode="api-key",
+        api_key="token",
+        chatkit_domain_key=None,
+        public_ingress_enabled=True,
+        public_host="orcheo.example.com",
+        publish_local_ports=False,
+        backend_upstreams="backend:8000",
+        canvas_upstream="canvas:5173",
+        start_stack=True,
+        install_docker_if_missing=False,
+    )
+    config.stack_project_dir = "/tmp/stack"
+    config.stack_env_file = "/tmp/stack/.env"
+    setup.print_summary(config, console=console)
+    output = console.file.getvalue()
+    assert "Setup complete" in output
+    assert "https://orcheo.example.com" in output
+    assert "localhost:5173" not in output

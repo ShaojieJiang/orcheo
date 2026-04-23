@@ -4,6 +4,8 @@ import { requestWorkflowChatSession } from "@features/chatkit/lib/workflow-sessi
 export type VibeChatSessionStatus = "idle" | "loading" | "ready" | "error";
 
 const SESSION_REFRESH_BUFFER_MS = 30_000;
+const MAX_REFRESH_RETRIES = 3;
+const RETRY_BASE_DELAY_MS = 2_000;
 
 export function useVibeChat(workflowId: string | null) {
   const [sessionStatus, setSessionStatus] =
@@ -22,23 +24,35 @@ export function useVibeChat(workflowId: string | null) {
     setSessionStatus("loading");
     setSessionError(null);
 
-    try {
-      const session = await requestWorkflowChatSession(workflowId);
-      secretRef.current = session.clientSecret;
-      expiresAtRef.current = session.expiresAt;
-      setSessionStatus("ready");
-      return session.clientSecret;
-    } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Chat session request failed";
-      secretRef.current = null;
-      expiresAtRef.current = null;
-      setSessionStatus("error");
-      setSessionError(message);
-      throw err;
-    } finally {
-      refreshingRef.current = false;
+    let lastErr: unknown;
+    for (let attempt = 0; attempt < MAX_REFRESH_RETRIES; attempt++) {
+      if (attempt > 0) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, RETRY_BASE_DELAY_MS * attempt),
+        );
+      }
+      try {
+        const session = await requestWorkflowChatSession(workflowId);
+        secretRef.current = session.clientSecret;
+        expiresAtRef.current = session.expiresAt;
+        setSessionStatus("ready");
+        refreshingRef.current = false;
+        return session.clientSecret;
+      } catch (err) {
+        lastErr = err;
+      }
     }
+
+    const message =
+      lastErr instanceof Error
+        ? lastErr.message
+        : "Chat session request failed";
+    secretRef.current = null;
+    expiresAtRef.current = null;
+    setSessionStatus("error");
+    setSessionError(message);
+    refreshingRef.current = false;
+    throw lastErr;
   }, [workflowId]);
 
   const getClientSecret = useCallback(

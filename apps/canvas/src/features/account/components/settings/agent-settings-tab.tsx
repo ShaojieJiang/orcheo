@@ -241,8 +241,7 @@ const AgentSettingsTab = () => {
 
   useEffect(() => {
     void loadProviderStatuses();
-    void queueStatusRefresh();
-  }, [loadProviderStatuses, queueStatusRefresh]);
+  }, [loadProviderStatuses]);
 
   useEffect(() => {
     const interval = setInterval(() => {
