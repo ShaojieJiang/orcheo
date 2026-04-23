@@ -10,6 +10,8 @@ export interface JsonViewerProps {
   className?: string;
 }
 
+const wrapStyle = `font-size: 12px; white-space: pre-wrap; word-wrap: break-word; overflow-wrap: break-word;`;
+
 export const DetailsViewJsonOutput: FC<JsonViewerProps> = ({
   content,
   id,
@@ -18,11 +20,12 @@ export const DetailsViewJsonOutput: FC<JsonViewerProps> = ({
   return (
     <JSONPretty
       booleanStyle={`color: ${colors.blue[800]};`}
-      className={`overflow-x-hidden rounded-xl p-4 text-left ${className}`}
+      className={`min-w-0 overflow-x-auto rounded-xl p-4 text-left ${className}`}
       data={content}
       id={`json-pretty-${id}`}
       keyStyle={`color: oklch(var(--${agentPrismPrefix}-code-key));`}
-      mainStyle={`color: oklch(var(--${agentPrismPrefix}-code-base)); font-size: 12px; white-space: pre-wrap; word-wrap: break-word; overflow-wrap: break-word;`}
+      mainStyle={`color: oklch(var(--${agentPrismPrefix}-code-base)); ${wrapStyle}`}
+      errorStyle={`color: oklch(var(--${agentPrismPrefix}-code-base)); ${wrapStyle}`}
       stringStyle={`color: oklch(var(--${agentPrismPrefix}-code-string));`}
       valueStyle={`color: oklch(var(--${agentPrismPrefix}-code-number));`}
     />

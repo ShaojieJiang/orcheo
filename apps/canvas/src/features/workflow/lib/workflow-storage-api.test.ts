@@ -286,6 +286,7 @@ describe("workflow-storage-api helpers", () => {
             workflow_id: "wf-1",
             version: 1,
             mermaid: "graph TD; A-->B",
+            has_cron_trigger: true,
             metadata: {},
             runnable_config: null,
             notes: "First version",
@@ -302,6 +303,7 @@ describe("workflow-storage-api helpers", () => {
     expect(payload?.workflow.id).toBe("wf-1");
     expect(payload?.versions).toHaveLength(1);
     expect(payload?.versions[0]?.mermaid).toBe("graph TD; A-->B");
+    expect(payload?.versions[0]?.has_cron_trigger).toBe(true);
     expect(mockFetch).toHaveBeenCalledTimes(1);
     expect(String(mockFetch.mock.calls[0]?.[0])).toContain(
       "/api/workflows/wf-1/canvas",

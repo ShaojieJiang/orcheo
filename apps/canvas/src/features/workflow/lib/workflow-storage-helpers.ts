@@ -17,6 +17,7 @@ import {
 } from "./mermaid-renderer";
 import type {
   ApiWorkflow,
+  ApiWorkflowVersion,
   ApiWorkflowVersionSummary,
   CanvasVersionMetadata,
   StoredWorkflow,
@@ -48,6 +49,36 @@ export const emptySnapshot = (
 
 const toVersionLabel = (version: number): string =>
   `v${version.toString().padStart(2, "0")}`;
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+
+const graphHasCronTrigger = (graph: unknown): boolean => {
+  if (!isRecord(graph)) {
+    return false;
+  }
+
+  const index = graph.index;
+  if (isRecord(index) && Array.isArray(index.cron) && index.cron.length > 0) {
+    return true;
+  }
+
+  const nodes = graph.nodes;
+  if (Array.isArray(nodes)) {
+    return nodes.some(
+      (node) => isRecord(node) && node.type === "CronTriggerNode",
+    );
+  }
+
+  const summary = graph.summary;
+  if (isRecord(summary) && Array.isArray(summary.nodes)) {
+    return summary.nodes.some(
+      (node) => isRecord(node) && node.type === "CronTriggerNode",
+    );
+  }
+
+  return false;
+};
 
 const toAuthor = (id: string | undefined): Workflow["owner"] => {
   if (!id) {
@@ -217,7 +248,7 @@ const parseCanvasMetadata = (
 };
 
 const toVersionRecord = (
-  version: ApiWorkflowVersionSummary,
+  version: ApiWorkflowVersionSummary | ApiWorkflowVersion,
   workflowName: string,
   workflowDescription?: string,
 ): WorkflowVersionRecord => {
@@ -243,6 +274,9 @@ const toVersionRecord = (
     snapshot:
       metadata.snapshot ?? emptySnapshot(workflowName, workflowDescription),
     mermaid: version.mermaid ?? null,
+    hasCronTrigger:
+      version.has_cron_trigger ??
+      graphHasCronTrigger((version as ApiWorkflowVersion).graph),
     runnableConfig: version.runnable_config ?? null,
     graphToCanvas: metadata.graphToCanvas,
     templateId: metadata.templateId,

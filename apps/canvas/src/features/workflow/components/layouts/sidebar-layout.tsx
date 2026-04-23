@@ -217,7 +217,7 @@ export default function SidebarLayout({
           </aside>
           <main
             className={cn(
-              "flex-1 h-full min-h-0",
+              "flex-1 h-full min-h-0 min-w-0 overflow-hidden",
               isResizing && "pointer-events-none",
               mainClassName,
             )}
@@ -231,7 +231,7 @@ export default function SidebarLayout({
         <>
           <main
             className={cn(
-              "flex-1 h-full min-h-0",
+              "flex-1 h-full min-h-0 min-w-0 overflow-hidden",
               isResizing && "pointer-events-none",
               mainClassName,
             )}

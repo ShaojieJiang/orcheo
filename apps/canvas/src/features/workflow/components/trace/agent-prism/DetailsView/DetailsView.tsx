@@ -118,7 +118,7 @@ export const DetailsView = ({
   return (
     <div
       className={cn(
-        "border-agentprism-border bg-agentprism-background flex h-full min-h-0 flex-col rounded-md border p-4",
+        "border-agentprism-border bg-agentprism-background flex h-full min-h-0 min-w-0 flex-col rounded-md border p-4",
         className,
       )}
     >
@@ -135,7 +135,7 @@ export const DetailsView = ({
 
       <div
         key={tab}
-        className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto py-4"
+        className="min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-auto py-4"
       >
         {tab === "input-output" && <DetailsViewInputOutputTab data={data} />}
         {tab === "attributes" && <DetailsViewAttributesTab data={data} />}

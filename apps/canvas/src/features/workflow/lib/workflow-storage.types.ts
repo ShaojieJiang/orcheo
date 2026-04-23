@@ -50,6 +50,7 @@ export interface ApiWorkflowVersionSummary {
   workflow_id: string;
   version: number;
   mermaid?: string | null;
+  has_cron_trigger?: boolean;
   metadata: unknown;
   runnable_config?: WorkflowRunnableConfig | null;
   notes: string | null;
@@ -223,6 +224,7 @@ export interface WorkflowVersionRecord {
   summary: WorkflowDiffResult["summary"];
   snapshot: WorkflowSnapshot;
   mermaid?: string | null;
+  hasCronTrigger?: boolean;
   runnableConfig?: WorkflowRunnableConfig | null;
   graphToCanvas?: Record<string, string>;
   templateId?: string;

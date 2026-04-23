@@ -1,0 +1,40 @@
+import { describe, expect, it } from "vitest";
+import { hasSchedulableCronTrigger } from "./build-layout-props";
+
+describe("hasSchedulableCronTrigger", () => {
+  it("returns true when a canvas node is a cron trigger", () => {
+    expect(
+      hasSchedulableCronTrigger(
+        [
+          {
+            id: "cron_trigger",
+            data: { backendType: "CronTriggerNode" },
+          },
+        ] as never,
+        [],
+      ),
+    ).toBe(true);
+  });
+
+  it("returns true when the latest saved version has a cron trigger but canvas nodes are empty", () => {
+    expect(
+      hasSchedulableCronTrigger([] as never, [
+        {
+          id: "v1",
+          version: "v01",
+          versionNumber: 1,
+          timestamp: "2026-04-23T06:23:17Z",
+          message: "Uploaded from CLI",
+          author: { id: "cli", name: "cli", avatar: "" },
+          summary: { added: 0, removed: 0, modified: 0 },
+          snapshot: { name: "Workflow", description: "", nodes: [], edges: [] },
+          hasCronTrigger: true,
+        },
+      ]),
+    ).toBe(true);
+  });
+
+  it("returns false when neither canvas nodes nor saved versions expose a cron trigger", () => {
+    expect(hasSchedulableCronTrigger([] as never, [])).toBe(false);
+  });
+});

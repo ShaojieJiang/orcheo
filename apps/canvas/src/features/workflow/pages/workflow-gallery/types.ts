@@ -2,6 +2,8 @@ export type WorkflowGalleryTab = "all" | "favorites" | "shared" | "templates";
 
 export type WorkflowGallerySort = "updated" | "created" | "name";
 
+export type WorkflowGalleryTabCounts = Record<WorkflowGalleryTab, number>;
+
 export interface WorkflowGalleryFilters {
   owner: {
     me: boolean;

@@ -193,6 +193,7 @@ class WorkflowCanvasVersionSummary(BaseModel):
     workflow_id: UUID
     version: int
     mermaid: str | None = None
+    has_cron_trigger: bool = False
     metadata: dict[str, Any] = Field(default_factory=dict)
     runnable_config: dict[str, Any] | None = None
     notes: str | None = None

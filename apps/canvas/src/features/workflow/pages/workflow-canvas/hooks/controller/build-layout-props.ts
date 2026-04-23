@@ -5,29 +5,36 @@ import type { WorkflowTabContentProps } from "@features/workflow/pages/workflow-
 import type {
   ChatKitStartScreenPrompt,
   ChatKitSupportedModel,
+  WorkflowVersionRecord,
 } from "@features/workflow/lib/workflow-storage.types";
 import type { WorkflowCanvasCore } from "./use-workflow-canvas-core";
 import type { WorkflowCanvasResources } from "./use-workflow-canvas-resources";
 import type { WorkflowCanvasExecution } from "./use-workflow-canvas-execution";
 
-const hasCronTriggerNode = (
+const nodeHasCronTrigger = (
+  node: WorkflowCanvasCore["history"]["nodes"][number],
+): boolean => {
+  if (typeof node.data?.backendType === "string") {
+    return node.data.backendType === "CronTriggerNode";
+  }
+
+  if (typeof node.data?.iconKey === "string") {
+    return node.data.iconKey.toLowerCase() === "schedule";
+  }
+
+  if (typeof node.data?.type === "string") {
+    return node.data.type.toLowerCase() === "crontriggernode";
+  }
+
+  return node.id.toLowerCase().includes("schedule-trigger");
+};
+
+export const hasSchedulableCronTrigger = (
   nodes: WorkflowCanvasCore["history"]["nodes"],
+  versions: WorkflowVersionRecord[],
 ): boolean =>
-  nodes.some((node) => {
-    if (typeof node.data?.backendType === "string") {
-      return node.data.backendType === "CronTriggerNode";
-    }
-
-    if (typeof node.data?.iconKey === "string") {
-      return node.data.iconKey.toLowerCase() === "schedule";
-    }
-
-    if (typeof node.data?.type === "string") {
-      return node.data.type.toLowerCase() === "crontriggernode";
-    }
-
-    return node.id.toLowerCase().includes("schedule-trigger");
-  });
+  nodes.some(nodeHasCronTrigger) ||
+  versions.some((version) => version.hasCronTrigger === true);
 
 export interface WorkflowLayoutProps {
   topNavigationProps: {
@@ -88,7 +95,10 @@ export function buildWorkflowLayoutProps(
     isRunPending: execution.isRunPending,
     onRunWorkflow: execution.handleRunPersistedWorkflow,
     onSaveConfig: resources.saver.handleSaveWorkflowConfig,
-    hasCronTriggerNode: hasCronTriggerNode(core.history.nodes),
+    hasCronTriggerNode: hasSchedulableCronTrigger(
+      core.history.nodes,
+      core.metadata.workflowVersions ?? [],
+    ),
     initialIsPublished: core.metadata.isWorkflowPublic,
     initialShareUrl: core.metadata.workflowShareUrl,
   };

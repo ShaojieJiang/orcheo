@@ -77,4 +77,46 @@ describe("workflow-storage-versioning", () => {
       "/api/workflows/wf-1/canvas",
     );
   });
+
+  it("preserves cron-trigger capability from compact canvas version summaries", async () => {
+    queueResponses([
+      jsonResponse({
+        workflow: {
+          id: "wf-1",
+          handle: "wf-1",
+          name: "Canvas Flow",
+          slug: "canvas-flow",
+          description: "Test",
+          tags: ["draft"],
+          is_archived: false,
+          is_public: false,
+          require_login: false,
+          published_at: null,
+          published_by: null,
+          created_at: "2026-03-10T09:00:00Z",
+          updated_at: "2026-03-10T10:00:00Z",
+          share_url: null,
+        },
+        versions: [
+          {
+            id: "v1",
+            workflow_id: "wf-1",
+            version: 1,
+            mermaid: "graph TD; A-->B",
+            has_cron_trigger: true,
+            metadata: {},
+            runnable_config: null,
+            notes: null,
+            created_by: "cli",
+            created_at: "2026-03-10T10:00:00Z",
+            updated_at: "2026-03-10T10:00:00Z",
+          },
+        ],
+      }),
+    ]);
+
+    const workflow = await ensureWorkflow("wf-1");
+
+    expect(workflow?.versions[0]?.hasCronTrigger).toBe(true);
+  });
 });

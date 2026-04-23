@@ -37,6 +37,7 @@ export default function WorkflowGallery() {
     setSelectedTab,
     isLoadingWorkflows,
     sortedWorkflows,
+    tabCounts,
     isTemplateView,
     handleCreateFolder,
     handleUseTemplate,
@@ -48,7 +49,7 @@ export default function WorkflowGallery() {
   } = useWorkflowGallery();
 
   return (
-    <div className="flex h-screen flex-col">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <TopNavigation
         credentials={credentials}
         isCredentialsLoading={isCredentialsLoading}
@@ -58,42 +59,39 @@ export default function WorkflowGallery() {
         onRevealCredentialSecret={onRevealCredentialSecret}
       />
 
-      <main className="flex-1 overflow-auto">
-        <div className="h-full">
-          <div className="flex h-[calc(100%-80px)] flex-col">
-            <div className="flex-1 overflow-auto">
-              <WorkflowGalleryHeader
-                searchQuery={searchQuery}
-                onSearchQueryChange={setSearchQuery}
-                sortBy={sortBy}
-                onSortChange={setSortBy}
-                filters={filters}
-                onFiltersChange={setFilters}
-                showFilterPopover={showFilterPopover}
-                onFilterPopoverChange={setShowFilterPopover}
-                showNewFolderDialog={showNewFolderDialog}
-                onNewFolderDialogChange={setShowNewFolderDialog}
-                newFolderName={newFolderName}
-                onFolderNameChange={setNewFolderName}
-                onCreateFolder={handleCreateFolder}
-                onApplyFilters={handleApplyFilters}
-              />
+      <main className="flex flex-1 min-h-0 flex-col overflow-hidden">
+        <WorkflowGalleryHeader
+          searchQuery={searchQuery}
+          onSearchQueryChange={setSearchQuery}
+          sortBy={sortBy}
+          onSortChange={setSortBy}
+          filters={filters}
+          onFiltersChange={setFilters}
+          showFilterPopover={showFilterPopover}
+          onFilterPopoverChange={setShowFilterPopover}
+          showNewFolderDialog={showNewFolderDialog}
+          onNewFolderDialogChange={setShowNewFolderDialog}
+          newFolderName={newFolderName}
+          onFolderNameChange={setNewFolderName}
+          onCreateFolder={handleCreateFolder}
+          onApplyFilters={handleApplyFilters}
+        />
 
-              <WorkflowGalleryTabs
-                selectedTab={selectedTab}
-                onSelectedTabChange={setSelectedTab}
-                isLoading={isLoadingWorkflows}
-                sortedWorkflows={sortedWorkflows}
-                isTemplateView={isTemplateView}
-                searchQuery={searchQuery}
-                onImportStarterPack={handleImportStarterPack}
-                onOpenWorkflow={handleOpenWorkflow}
-                onUseTemplate={handleUseTemplate}
-                onExportWorkflow={handleExportWorkflow}
-                onDeleteWorkflow={handleDeleteWorkflow}
-              />
-            </div>
-          </div>
+        <div className="flex-1 overflow-auto">
+          <WorkflowGalleryTabs
+            selectedTab={selectedTab}
+            onSelectedTabChange={setSelectedTab}
+            isLoading={isLoadingWorkflows}
+            sortedWorkflows={sortedWorkflows}
+            tabCounts={tabCounts}
+            isTemplateView={isTemplateView}
+            searchQuery={searchQuery}
+            onImportStarterPack={handleImportStarterPack}
+            onOpenWorkflow={handleOpenWorkflow}
+            onUseTemplate={handleUseTemplate}
+            onExportWorkflow={handleExportWorkflow}
+            onDeleteWorkflow={handleDeleteWorkflow}
+          />
         </div>
       </main>
     </div>

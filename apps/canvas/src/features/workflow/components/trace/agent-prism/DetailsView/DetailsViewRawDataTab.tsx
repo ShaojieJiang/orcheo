@@ -12,7 +12,7 @@ interface RawDataTabProps {
 export const DetailsViewRawDataTab = ({
   data,
 }: RawDataTabProps): ReactElement => (
-  <div className="border-agentprism-border rounded-md border bg-transparent">
+  <div className="border-agentprism-border min-w-0 w-full rounded-md border bg-transparent">
     <div className="flex justify-end p-1.5">
       <CopyButton label="Raw" content={data.raw} />
     </div>
