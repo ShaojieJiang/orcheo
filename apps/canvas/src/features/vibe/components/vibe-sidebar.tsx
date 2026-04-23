@@ -1,6 +1,6 @@
 import { lazy, Suspense, useMemo } from "react";
 import { Link } from "react-router-dom";
-import { Loader2, Settings, Sparkles, X } from "lucide-react";
+import { Loader2, Settings, Sparkles, X, AlertTriangle } from "lucide-react";
 import { Button } from "@/design-system/ui/button";
 import { Skeleton } from "@/design-system/ui/skeleton";
 import { cn } from "@/lib/utils";
@@ -31,7 +31,7 @@ export function VibeSidebar({ isCollapsed = false }: VibeSidebarProps) {
     contextString,
   } = useVibe();
 
-  const { getClientSecret, sessionStatus, sessionError, refreshSession } =
+  const { getClientSecret, sessionStatus, refreshSession } =
     useVibeChat(agentWorkflowId);
 
   const colorScheme = useColorScheme();
@@ -98,22 +98,30 @@ export function VibeSidebar({ isCollapsed = false }: VibeSidebarProps) {
     if (sessionStatus === "error") {
       return (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 px-4 text-center text-sm text-muted-foreground">
-          <p className="text-destructive">
-            {sessionError ?? "Failed to start chat session."}
+          <AlertTriangle className="h-5 w-5 text-destructive" />
+          <p className="font-medium text-destructive">Connection failed</p>
+          <p className="text-xs">
+            Your agent session has expired or the connection was lost. Go to
+            Settings, disconnect and reconnect your agent.
           </p>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void refreshSession()}
-          >
-            Retry
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void refreshSession()}
+            >
+              Retry
+            </Button>
+            <Button variant="outline" size="sm" asChild>
+              <Link to="/settings">Settings</Link>
+            </Button>
+          </div>
         </div>
       );
     }
 
     return null;
-  }, [isProvisioning, sessionStatus, sessionError, refreshSession]);
+  }, [isProvisioning, sessionStatus, refreshSession]);
 
   if (isCollapsed) {
     return (
@@ -121,7 +129,7 @@ export function VibeSidebar({ isCollapsed = false }: VibeSidebarProps) {
         <button
           type="button"
           onClick={toggleOpen}
-          className="absolute left-0 top-40 z-20 flex h-7 w-7 items-center justify-center rounded-full bg-muted text-foreground shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="absolute left-0 top-40 z-20 flex h-7 w-7 items-center justify-center rounded-full bg-muted/40 text-foreground shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           title="Open Orcheo Vibe"
         >
           <Sparkles

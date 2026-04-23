@@ -70,6 +70,7 @@ class SetupConfig:
     canvas_upstream: str
     start_stack: bool
     install_docker_if_missing: bool
+    install_agent_skills: bool = False
     preserve_existing_backend_url: bool = False
     stack_project_dir: str | None = None
     stack_env_file: str | None = None
@@ -604,10 +605,11 @@ def _resolve_public_ingress_enabled(
     yes: bool,
     env_file: Path,
     env_exists: bool,
+    mode: SetupMode,
 ) -> bool:
     if public_ingress is not None:
         return public_ingress
-    if env_exists:
+    if env_exists and mode == "upgrade":
         existing = _parse_bool_value(
             _read_env_value(env_file, "ORCHEO_PUBLIC_INGRESS_ENABLED")
         )
@@ -615,9 +617,16 @@ def _resolve_public_ingress_enabled(
             return existing
     if yes:
         return False
+    existing_default = False
+    if env_exists:
+        parsed = _parse_bool_value(
+            _read_env_value(env_file, "ORCHEO_PUBLIC_INGRESS_ENABLED")
+        )
+        if parsed is not None:
+            existing_default = parsed
     return typer.confirm(
         "Enable bundled public HTTPS ingress with Caddy?",
-        default=False,
+        default=existing_default,
     )
 
 
@@ -679,12 +688,14 @@ def _resolve_public_ingress_config(
     yes: bool,
     env_file: Path,
     env_exists: bool,
+    mode: SetupMode,
 ) -> tuple[bool, str | None, bool]:
     resolved_public_ingress_enabled = _resolve_public_ingress_enabled(
         public_ingress,
         yes=yes,
         env_file=env_file,
         env_exists=env_exists,
+        mode=mode,
     )
     resolved_public_host = _resolve_public_host(
         public_host,
@@ -1357,6 +1368,7 @@ def run_setup(
         yes=yes,
         env_file=stack_env_file,
         env_exists=has_existing_stack_env,
+        mode=resolved_mode,
     )
     default_backend_url = (
         f"https://{resolved_public_host}"
@@ -1401,6 +1413,12 @@ def run_setup(
         stack_env_file,
         env_exists=has_existing_stack_env,
     )
+    resolved_install_agent_skills = _resolve_bool(
+        None,
+        yes_default=yes,
+        prompt="Install Orcheo skill for Claude Code and Codex?",
+        default=True,
+    )
     _print_setup_resolution_notes(
         console=console,
         resolved_api_key=resolved_api_key,
@@ -1426,6 +1444,7 @@ def run_setup(
         canvas_upstream=resolved_canvas_upstream,
         start_stack=resolved_start_stack,
         install_docker_if_missing=resolved_install_docker,
+        install_agent_skills=resolved_install_agent_skills,
         preserve_existing_backend_url=preserve_existing_backend_url,
     )
 
@@ -1626,11 +1645,14 @@ def print_summary(config: SetupConfig, *, console: Console) -> None:
     console.print_json(json.dumps(summary))
 
     if config.start_stack:
+        if not config.public_ingress_enabled:
+            console.print("\n[bold cyan]Canvas:[/bold cyan] http://localhost:5173")
         console.print(
             "\n[yellow]Note:[/yellow] Canvas may take 2-3 minutes on first "
             "startup while npm installs dependencies."
         )
     if config.public_ingress_enabled and config.public_host is not None:
+        console.print(f"\n[bold cyan]Canvas:[/bold cyan] https://{config.public_host}")
         console.print(
             "\n[yellow]Public ingress prerequisites:[/yellow] "
             f"point DNS for {config.public_host} at this host and allow inbound "
@@ -1646,6 +1668,8 @@ def print_summary(config: SetupConfig, *, console: Console) -> None:
         "  1. Run [cyan]orcheo auth login[/cyan] (or configure a service token)."
     )
     console.print("  2. Run [cyan]orcheo workflow list[/cyan] to verify connectivity.")
+    if config.start_stack and not config.public_ingress_enabled:
+        console.print("  3. Open [cyan]http://localhost:5173[/cyan] in your browser.")
 
 
 __all__ = [

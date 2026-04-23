@@ -20,6 +20,7 @@ import { buildVibeSupportedModels } from "@features/vibe/lib/vibe-models";
 const VIBE_TEMPLATE = getWorkflowTemplateDefinition(VIBE_WORKFLOW_TEMPLATE_ID);
 const TEMPLATE_SYNC_ACTOR = "canvas-app";
 const TEMPLATE_SUMMARY = { added: 0, removed: 0, modified: 0 };
+const WORKFLOW_ID_STORAGE_KEY = "orcheo:vibe-workflow-id";
 
 interface VibeWorkflowState {
   workflowId: string | null;
@@ -27,7 +28,32 @@ interface VibeWorkflowState {
   error: string | null;
 }
 
-let cachedWorkflowId: string | null = null;
+const readCachedWorkflowId = (): string | null => {
+  try {
+    return localStorage.getItem(WORKFLOW_ID_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+};
+
+const writeCachedWorkflowId = (id: string): void => {
+  try {
+    localStorage.setItem(WORKFLOW_ID_STORAGE_KEY, id);
+  } catch {
+    // Silently ignore storage errors.
+  }
+};
+
+const clearCachedWorkflowId = (): void => {
+  cachedWorkflowId = null;
+  try {
+    localStorage.removeItem(WORKFLOW_ID_STORAGE_KEY);
+  } catch {
+    // Silently ignore storage errors.
+  }
+};
+
+let cachedWorkflowId: string | null = readCachedWorkflowId();
 
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   value && typeof value === "object"
@@ -59,7 +85,7 @@ export function useVibeWorkflow(
     [supportedModels],
   );
   const [state, setState] = useState<VibeWorkflowState>({
-    workflowId: supportedModels ? cachedWorkflowId : null,
+    workflowId: cachedWorkflowId,
     isProvisioning: false,
     error: null,
   });
@@ -157,14 +183,20 @@ export function useVibeWorkflow(
       if (provisioningRef.current) return;
 
       if (cachedWorkflowId) {
-        await syncManagedTemplate(cachedWorkflowId);
-        await syncSupportedModels(cachedWorkflowId, models);
-        setWorkflowState({
-          workflowId: cachedWorkflowId,
-          isProvisioning: false,
-          error: null,
-        });
-        return;
+        try {
+          await Promise.all([
+            syncManagedTemplate(cachedWorkflowId),
+            syncSupportedModels(cachedWorkflowId, models),
+          ]);
+          setWorkflowState({
+            workflowId: cachedWorkflowId,
+            isProvisioning: false,
+            error: null,
+          });
+          return;
+        } catch {
+          clearCachedWorkflowId();
+        }
       }
 
       provisioningRef.current = true;
@@ -185,8 +217,11 @@ export function useVibeWorkflow(
 
         if (existing) {
           cachedWorkflowId = existing.id;
-          await syncManagedTemplate(existing.id);
-          await syncSupportedModels(existing.id, models);
+          writeCachedWorkflowId(existing.id);
+          await Promise.all([
+            syncManagedTemplate(existing.id),
+            syncSupportedModels(existing.id, models),
+          ]);
           setWorkflowState({
             workflowId: existing.id,
             isProvisioning: false,
@@ -208,6 +243,7 @@ export function useVibeWorkflow(
         }
 
         cachedWorkflowId = created.id;
+        writeCachedWorkflowId(created.id);
         await syncSupportedModels(created.id, models);
         setWorkflowState({
           workflowId: created.id,

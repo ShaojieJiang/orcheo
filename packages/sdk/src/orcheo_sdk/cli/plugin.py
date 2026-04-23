@@ -128,6 +128,26 @@ def _run_stack_subprocess(
     return result
 
 
+def _run_stack_subprocess_streaming(
+    command: list[str],
+    *,
+    expected_exit_codes: set[int] | None = None,
+) -> int:
+    """Run a stack subprocess, streaming output to the terminal in real time."""
+    if shutil.which("docker") is None:
+        raise typer.BadParameter(
+            "Docker is not installed or not in PATH. Install Docker and retry."
+        )
+    if expected_exit_codes is None:
+        expected_exit_codes = {0}
+    result = subprocess.run(command, check=False)
+    if result.returncode not in expected_exit_codes:
+        raise typer.BadParameter(
+            f"Command failed with exit code {result.returncode}: {' '.join(command)}"
+        )
+    return result.returncode
+
+
 def _running_stack_services() -> set[str]:
     compose_base_args = _stack_compose_base_args()
     result = _run_stack_subprocess(
@@ -175,16 +195,18 @@ def _stack_plugin_command(
 
 def _run_stack_plugin_passthrough(*, args: list[str], state: CLIState) -> None:
     expected_exit_codes = {0, 1} if args and args[0] == "doctor" else {0}
-    result = _run_stack_subprocess(
-        _stack_plugin_command(args=args, human=state.human),
-        expected_exit_codes=expected_exit_codes,
-    )
+    command = _stack_plugin_command(args=args, human=state.human)
+    if state.human:
+        returncode = _run_stack_subprocess_streaming(
+            command, expected_exit_codes=expected_exit_codes
+        )
+        if args and args[0] == "doctor" and returncode == 1:
+            raise typer.Exit(code=1)
+        return
+    result = _run_stack_subprocess(command, expected_exit_codes=expected_exit_codes)
     output = result.stdout.rstrip()
     if output:
-        if state.human:
-            state.console.print(output)
-        else:
-            typer.echo(output)
+        typer.echo(output)
     if args and args[0] == "doctor" and result.returncode == 1:
         raise typer.Exit(code=1)
 
@@ -528,18 +550,15 @@ def install_plugin(
         stack_ref = (
             _copy_local_plugin_ref_into_stack(ref) if _is_local_plugin_ref(ref) else ref
         )
-        _emit_plugin_progress(state, "Installing plugin inside the stack backend")
+        if state.human:
+            _emit_plugin_progress(state, "Installing plugin inside the stack backend")
+            _run_stack_plugin_passthrough(args=["install", stack_ref], state=state)
+            _restart_running_stack_services(state)
+            return
         payload = _run_stack_plugin_json(["install", stack_ref])
         if _payload_requires_restart(payload):  # pragma: no branch
             _restart_running_stack_services(state)
-        if not state.human:
-            print_json(payload)
-            return
-        render_json(state.console, payload["plugin"], title="Installed Plugin")
-        _render_impact(
-            state,
-            PluginImpactSummary(**payload["impact"]),
-        )
+        print_json(payload)
         return
     try:
         _emit_plugin_progress(state, f"Installing plugin from '{ref}'")

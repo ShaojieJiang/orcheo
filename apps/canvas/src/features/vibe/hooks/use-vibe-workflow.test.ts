@@ -141,4 +141,71 @@ describe("useVibeWorkflow", () => {
       },
     );
   });
+
+  it("clears a stale cached workflow id and falls back to discovering a valid managed workflow", async () => {
+    vi.mocked(listWorkflows).mockResolvedValue([EXISTING_VIBE_WORKFLOW]);
+    vi.mocked(fetchWorkflowVersions).mockResolvedValue([
+      {
+        id: "workflow-1-version-1",
+        workflow_id: "workflow-1",
+        version: 1,
+        metadata: {
+          source: "canvas-template",
+          template_id: "template-vibe-agent",
+          template: {
+            templateVersion: "1.0.1",
+          },
+        },
+        notes: "Seeded from the Orcheo Vibe template.",
+        created_by: "canvas-app",
+        created_at: "2026-04-13T09:00:00.000Z",
+        updated_at: "2026-04-13T09:00:00.000Z",
+        graph: {},
+      },
+    ]);
+    vi.mocked(request).mockImplementation(async (path, options) => {
+      if (path === "/api/workflows/workflow-1" && options?.method === "PUT") {
+        return { id: "workflow-1" };
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+
+    const initial = renderHook(() => useVibeWorkflow([READY_PROVIDER]));
+    await waitFor(() => {
+      expect(initial.result.current.workflowId).toBe("workflow-1");
+      expect(initial.result.current.error).toBeNull();
+    });
+    initial.unmount();
+
+    vi.mocked(listWorkflows).mockResolvedValue([
+      {
+        ...EXISTING_VIBE_WORKFLOW,
+        id: "workflow-2",
+      },
+    ]);
+    vi.mocked(fetchWorkflowVersions).mockResolvedValue([]);
+    vi.mocked(request).mockImplementation(async (path, options) => {
+      if (path === "/api/workflows/workflow-1" && options?.method === "PUT") {
+        throw new Error("Workflow not found");
+      }
+      if (path === "/api/workflows/workflow-2" && options?.method === "PUT") {
+        return { id: "workflow-2" };
+      }
+      if (
+        path === "/api/workflows/workflow-2/versions/ingest" &&
+        options?.method === "POST"
+      ) {
+        return { id: "workflow-2-version-1" };
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+
+    const recovered = renderHook(() => useVibeWorkflow([READY_PROVIDER]));
+
+    await waitFor(() => {
+      expect(recovered.result.current.workflowId).toBe("workflow-2");
+      expect(recovered.result.current.error).toBeNull();
+      expect(recovered.result.current.isProvisioning).toBe(false);
+    });
+  });
 });
