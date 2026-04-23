@@ -1277,7 +1277,9 @@ def ensure_stack_env_file(
     Returns ``True`` when the env file was created during this call.
     """
     if not env_template.exists():
-        raise typer.BadParameter(f"Stack env template not found: {env_template}")
+        raise typer.BadParameter(  # pragma: no cover - defensive check
+            f"Stack env template not found: {env_template}"
+        )
 
     env_file.parent.mkdir(parents=True, exist_ok=True)
     env_created = not env_file.exists()
