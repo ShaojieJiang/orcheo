@@ -32,7 +32,7 @@ export const DetailsViewContentViewer = ({
 
   return (
     <div
-      className={`border-agentprism-border relative rounded-lg border ${className}`}
+      className={`border-agentprism-border relative min-w-0 rounded-lg border ${className}`}
     >
       <div className="absolute right-1.5 top-1.5 z-10">
         <CopyButton label={label} content={content} />

@@ -13,6 +13,7 @@ import {
   type WorkflowGalleryFilters,
   type WorkflowGallerySort,
   type WorkflowGalleryTab,
+  type WorkflowGalleryTabCounts,
 } from "./types";
 
 interface WorkflowGalleryStateSlice {
@@ -32,6 +33,7 @@ interface WorkflowGalleryStateSlice {
   setFilters: (value: WorkflowGalleryFilters) => void;
   isLoadingWorkflows: boolean;
   sortedWorkflows: Workflow[];
+  tabCounts: WorkflowGalleryTabCounts;
   isTemplateView: boolean;
   templates: Workflow[];
 }
@@ -52,6 +54,18 @@ const DEFAULT_FILTERS: WorkflowGalleryFilters = {
     production: false,
     development: false,
   },
+};
+
+const matchesWorkflowSearch = (
+  workflow: Workflow,
+  normalizedSearchQuery: string,
+) => {
+  return (
+    normalizedSearchQuery.length === 0 ||
+    workflow.name.toLowerCase().includes(normalizedSearchQuery) ||
+    (workflow.description?.toLowerCase().includes(normalizedSearchQuery) ??
+      false)
+  );
 };
 
 export const useWorkflowGalleryState = (): WorkflowGalleryStateSlice => {
@@ -120,46 +134,59 @@ export const useWorkflowGalleryState = (): WorkflowGalleryStateSlice => {
   const templates = useMemo(() => SAMPLE_WORKFLOWS, []);
   const defaultOwnerId = templates[0]?.owner.id ?? "user-1";
   const isTemplateView = selectedTab === "templates";
+  const normalizedSearchQuery = searchQuery.trim().toLowerCase();
+
+  const searchableWorkflows = useMemo(() => {
+    return workflows.filter((workflow) =>
+      matchesWorkflowSearch(workflow, normalizedSearchQuery),
+    );
+  }, [workflows, normalizedSearchQuery]);
+
+  const searchableTemplates = useMemo(() => {
+    return templates.filter(
+      (workflow) =>
+        matchesWorkflowSearch(workflow, normalizedSearchQuery) &&
+        workflow.tags.includes("template"),
+    );
+  }, [templates, normalizedSearchQuery]);
+
+  const tabCounts = useMemo<WorkflowGalleryTabCounts>(() => {
+    return {
+      all: searchableWorkflows.length,
+      favorites: searchableWorkflows.filter((workflow) =>
+        workflow.tags.includes("favorite"),
+      ).length,
+      shared: searchableWorkflows.filter(
+        (workflow) => workflow.owner?.id !== defaultOwnerId,
+      ).length,
+      templates: searchableTemplates.length,
+    };
+  }, [defaultOwnerId, searchableTemplates, searchableWorkflows]);
 
   const filteredWorkflows = useMemo(() => {
-    const collection: Workflow[] = isTemplateView ? templates : workflows;
-    const query = searchQuery.toLowerCase();
+    if (isTemplateView) {
+      return searchableTemplates;
+    }
 
-    return collection.filter((workflow) => {
-      const matchesSearch =
-        workflow.name.toLowerCase().includes(query) ||
-        (workflow.description &&
-          workflow.description.toLowerCase().includes(query));
+    if (selectedTab === "favorites") {
+      return searchableWorkflows.filter((workflow) =>
+        workflow.tags.includes("favorite"),
+      );
+    }
 
-      if (!matchesSearch) {
-        return false;
-      }
+    if (selectedTab === "shared") {
+      return searchableWorkflows.filter(
+        (workflow) => workflow.owner?.id !== defaultOwnerId,
+      );
+    }
 
-      if (isTemplateView) {
-        return workflow.tags.includes("template");
-      }
-
-      if (selectedTab === "favorites") {
-        return workflow.tags.includes("favorite");
-      }
-
-      if (selectedTab === "shared") {
-        return workflow.owner?.id !== defaultOwnerId;
-      }
-
-      if (selectedTab === "templates") {
-        return workflow.tags.includes("template");
-      }
-
-      return true;
-    });
+    return searchableWorkflows;
   }, [
     defaultOwnerId,
     isTemplateView,
-    searchQuery,
+    searchableTemplates,
+    searchableWorkflows,
     selectedTab,
-    templates,
-    workflows,
   ]);
 
   const sortedWorkflows = useMemo(() => {
@@ -198,6 +225,7 @@ export const useWorkflowGalleryState = (): WorkflowGalleryStateSlice => {
     setFilters,
     isLoadingWorkflows,
     sortedWorkflows,
+    tabCounts,
     isTemplateView,
     templates,
   };

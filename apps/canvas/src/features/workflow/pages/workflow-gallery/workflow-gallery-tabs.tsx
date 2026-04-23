@@ -8,13 +8,17 @@ import {
 import { Loader2, Zap } from "lucide-react";
 import { type Workflow } from "@features/workflow/data/workflow-data";
 import { WorkflowCard } from "./workflow-card";
-import { type WorkflowGalleryTab } from "./types";
+import {
+  type WorkflowGalleryTab,
+  type WorkflowGalleryTabCounts,
+} from "./types";
 
 interface WorkflowGalleryTabsProps {
   selectedTab: WorkflowGalleryTab;
   onSelectedTabChange: (value: WorkflowGalleryTab) => void;
   isLoading: boolean;
   sortedWorkflows: Workflow[];
+  tabCounts: WorkflowGalleryTabCounts;
   isTemplateView: boolean;
   searchQuery: string;
   onImportStarterPack: () => void;
@@ -32,6 +36,7 @@ export const WorkflowGalleryTabs = ({
   onSelectedTabChange,
   isLoading,
   sortedWorkflows,
+  tabCounts,
   isTemplateView,
   searchQuery,
   onImportStarterPack,
@@ -50,10 +55,30 @@ export const WorkflowGalleryTabs = ({
     >
       <div className="mb-6 flex items-center justify-between">
         <TabsList>
-          <TabsTrigger value="all">All</TabsTrigger>
-          <TabsTrigger value="favorites">Favorites</TabsTrigger>
-          <TabsTrigger value="shared">Shared with me</TabsTrigger>
-          <TabsTrigger value="templates">Templates</TabsTrigger>
+          <TabsTrigger value="all" className="gap-2">
+            <span>All</span>
+            <span className="text-xs text-muted-foreground">
+              {tabCounts.all}
+            </span>
+          </TabsTrigger>
+          <TabsTrigger value="favorites" className="gap-2">
+            <span>Favorites</span>
+            <span className="text-xs text-muted-foreground">
+              {tabCounts.favorites}
+            </span>
+          </TabsTrigger>
+          <TabsTrigger value="shared" className="gap-2">
+            <span>Shared with me</span>
+            <span className="text-xs text-muted-foreground">
+              {tabCounts.shared}
+            </span>
+          </TabsTrigger>
+          <TabsTrigger value="templates" className="gap-2">
+            <span>Templates</span>
+            <span className="text-xs text-muted-foreground">
+              {tabCounts.templates}
+            </span>
+          </TabsTrigger>
         </TabsList>
       </div>
 

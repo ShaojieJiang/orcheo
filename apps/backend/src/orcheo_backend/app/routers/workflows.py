@@ -200,6 +200,38 @@ def _extract_index_mermaid(graph: Any) -> str | None:
     return mermaid
 
 
+def _has_indexed_cron_trigger(index: Any) -> bool:
+    """Return True when graph index metadata contains cron entries."""
+    if not isinstance(index, dict):
+        return False
+    cron_entries = index.get("cron")
+    return isinstance(cron_entries, list) and len(cron_entries) > 0
+
+
+def _has_cron_trigger_node(nodes: Any) -> bool:
+    """Return True when a node list contains a cron trigger node."""
+    if not isinstance(nodes, list):
+        return False
+    return any(
+        isinstance(node, dict) and node.get("type") == "CronTriggerNode"
+        for node in nodes
+    )
+
+
+def _graph_has_cron_trigger(graph: Any) -> bool:
+    """Return True when the graph metadata includes a cron trigger."""
+    if not isinstance(graph, dict):
+        return False
+    if _has_indexed_cron_trigger(graph.get("index")):
+        return True
+    if _has_cron_trigger_node(graph.get("nodes")):
+        return True
+    summary = graph.get("summary")
+    if not isinstance(summary, dict):
+        return False
+    return _has_cron_trigger_node(summary.get("nodes"))
+
+
 def _to_canvas_version_summary(
     version: WorkflowVersion,
 ) -> WorkflowCanvasVersionSummary:
@@ -209,6 +241,7 @@ def _to_canvas_version_summary(
         workflow_id=version.workflow_id,
         version=version.version,
         mermaid=_extract_index_mermaid(version.graph),
+        has_cron_trigger=_graph_has_cron_trigger(version.graph),
         metadata=version.metadata,
         runnable_config=version.runnable_config,
         notes=version.notes,

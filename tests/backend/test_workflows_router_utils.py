@@ -42,6 +42,24 @@ def test_extract_index_mermaid_preserves_whitespace() -> None:
     assert workflow_router._extract_index_mermaid(graph) == mermaid
 
 
+@pytest.mark.parametrize(
+    ("graph", "expected"),
+    [
+        (None, False),
+        ("not a dict", False),
+        ({"index": {"cron": []}}, False),
+        ({"index": {"cron": [{"cron": "* * * * *"}]}}, True),
+        ({"nodes": [{"type": "CronTriggerNode"}]}, True),
+        ({"summary": {"nodes": [{"type": "CronTriggerNode"}]}}, True),
+        ({"nodes": [{"type": "AINode"}], "summary": {"nodes": []}}, False),
+    ],
+)
+def test_graph_has_cron_trigger_detects_supported_shapes(
+    graph: object, expected: bool
+) -> None:
+    assert workflow_router._graph_has_cron_trigger(graph) is expected
+
+
 class _MissingWorkflowRepository:
     """Repository that resolves workflows but fails to load them."""
 
