@@ -100,6 +100,43 @@ def test_stack_start_shortcut_runs_compose_up_detached(
     ]
 
 
+def test_install_ensure_stack_env_command_creates_env_file(
+    runner: Any,
+    env: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    env_template = tmp_path / ".env.example"
+    env_template.write_text(
+        "ORCHEO_POSTGRES_PASSWORD=change-me\n"
+        "ORCHEO_VAULT_ENCRYPTION_KEY=replace-with-64-hex-chars\n"
+        "ORCHEO_CHATKIT_TOKEN_SIGNING_KEY=strong-random-secret\n"
+        "VITE_ORCHEO_CHATKIT_DOMAIN_KEY=domain_pk_replace_me\n",
+        encoding="utf-8",
+    )
+    env_file = tmp_path / "stack" / ".env"
+
+    result = runner.invoke(
+        app,
+        [
+            "--no-update-check",
+            "install",
+            "ensure-stack-env",
+            "--env-file",
+            str(env_file),
+            "--env-template",
+            str(env_template),
+        ],
+        env=env,
+    )
+
+    assert result.exit_code == 0
+    env_content = env_file.read_text(encoding="utf-8")
+    assert "ORCHEO_POSTGRES_PASSWORD=change-me" not in env_content
+    assert "ORCHEO_VAULT_ENCRYPTION_KEY=replace-with-64-hex-chars" not in env_content
+    assert "ORCHEO_CHATKIT_TOKEN_SIGNING_KEY=strong-random-secret" not in env_content
+    assert "VITE_ORCHEO_CHATKIT_DOMAIN_KEY=domain_pk_replace_me" in env_content
+
+
 def test_stack_logs_treats_sigint_exit_as_success(
     runner: Any,
     env: dict[str, str],

@@ -1,0 +1,26 @@
+x-orcheo-staging-build: &orcheo_staging_build
+  context: ../..
+  dockerfile: deploy/stack/Dockerfile.orcheo.staging
+
+services:
+  backend:
+    image: orcheo-stack:staging-local
+    build: *orcheo_staging_build
+
+  worker:
+    image: orcheo-stack:staging-local
+    build: *orcheo_staging_build
+    volumes:
+      - orcheo_data:/data
+      - ../../workspace/agents:/workspace/agents
+      - ./chatkit_widgets:/app/examples/chatkit_widgets/widgets:ro
+
+  celery-beat:
+    image: orcheo-stack:staging-local
+    build: *orcheo_staging_build
+
+  canvas:
+    image: orcheo-canvas:staging-local
+    build:
+      context: ../..
+      dockerfile: deploy/stack/Dockerfile.canvas.staging

@@ -1171,12 +1171,29 @@ def _build_env_updates(
             f"{_STACK_IMAGE_REPOSITORY}:{requested_stack_version}"
         )
 
-    defaults: dict[str, str] = {
+    defaults = build_generated_stack_env_defaults()
+    return updates, defaults
+
+
+def build_generated_stack_env_defaults() -> dict[str, str]:
+    """Return auto-generated defaults for a freshly-created stack env file."""
+    return {
         "ORCHEO_POSTGRES_PASSWORD": secrets.token_urlsafe(16),
         "ORCHEO_VAULT_ENCRYPTION_KEY": secrets.token_hex(32),
         "ORCHEO_CHATKIT_TOKEN_SIGNING_KEY": secrets.token_urlsafe(32),
     }
-    return updates, defaults
+
+
+def _read_env_assignments(env_file: Path) -> dict[str, str]:
+    assignments: dict[str, str] = {}
+    for line in env_file.read_text(encoding="utf-8").splitlines():
+        match = _ENV_KEY_PATTERN.match(line)
+        if not match:
+            continue
+        key = match.group(1)
+        _, _, value = line.partition("=")
+        assignments[key] = value.strip()
+    return assignments
 
 
 def _read_env_value(env_file: Path, key: str) -> str | None:
@@ -1248,6 +1265,49 @@ def _upsert_env_values(
     console.print(f"[green]Updated stack env file at {env_file}[/green]")
 
 
+def ensure_stack_env_file(
+    *,
+    env_file: Path,
+    env_template: Path,
+    console: Console,
+    generated_defaults: dict[str, str] | None = None,
+) -> bool:
+    """Create or backfill a stack env file from a template.
+
+    Returns ``True`` when the env file was created during this call.
+    """
+    if not env_template.exists():
+        raise typer.BadParameter(  # pragma: no cover - defensive check
+            f"Stack env template not found: {env_template}"
+        )
+
+    env_file.parent.mkdir(parents=True, exist_ok=True)
+    env_created = not env_file.exists()
+    if env_created:
+        shutil.copyfile(env_template, env_file)
+        console.print(f"[green]Created stack env file at {env_file}[/green]")
+
+    template_defaults = _read_env_assignments(env_template)
+    defaults_to_apply: dict[str, str]
+    if env_created:
+        defaults_to_apply = dict(template_defaults)
+        defaults_to_apply.update(generated_defaults or {})
+    else:
+        existing_assignments = _read_env_assignments(env_file)
+        defaults_to_apply = {
+            key: value
+            for key, value in template_defaults.items()
+            if key not in existing_assignments
+        }
+        for key, value in (generated_defaults or {}).items():
+            if key not in existing_assignments:
+                defaults_to_apply[key] = value
+
+    if defaults_to_apply:
+        _upsert_env_values(env_file, {}, defaults=defaults_to_apply, console=console)
+    return env_created
+
+
 def _preserve_existing_stack_browser_urls(
     *,
     env_file: Path,
@@ -1290,22 +1350,23 @@ def _ensure_stack_assets(
     )
 
     env_file = stack_dir / ".env"
-    env_created = not env_file.exists()
-    if env_created:
-        env_template = stack_dir / ".env.example"
-        if not env_template.exists():
-            _sync_stack_asset(
-                ".env.example",
-                stack_dir,
-                stack_version=synced_stack_version,
-                console=console,
-            )
-        shutil.copyfile(env_template, env_file)
-        console.print(f"[green]Created stack env file at {env_file}[/green]")
-
     updates, defaults = _build_env_updates(
         config,
         requested_stack_version=requested_stack_version,
+    )
+    env_template = stack_dir / ".env.example"
+    if not env_template.exists():
+        _sync_stack_asset(
+            ".env.example",
+            stack_dir,
+            stack_version=synced_stack_version,
+            console=console,
+        )
+    env_created = ensure_stack_env_file(
+        env_file=env_file,
+        env_template=env_template,
+        console=console,
+        generated_defaults=defaults,
     )
     if not env_created:
         _preserve_existing_stack_browser_urls(
@@ -1314,19 +1375,7 @@ def _ensure_stack_assets(
             config=config,
         )
 
-    if env_created:
-        # Fresh install: overwrite template placeholders with generated secrets.
-        _upsert_env_values(env_file, updates, defaults=defaults, console=console)
-    else:
-        # Existing .env: apply config updates only, preserve user secrets.
-        _upsert_env_values(env_file, updates, console=console)
-        # Backfill ChatKit key for legacy env files so compose startup is not blocked.
-        if _read_env_value(env_file, "VITE_ORCHEO_CHATKIT_DOMAIN_KEY") is None:
-            _upsert_env_values(
-                env_file,
-                {"VITE_ORCHEO_CHATKIT_DOMAIN_KEY": _CHATKIT_DOMAIN_KEY_PLACEHOLDER},
-                console=console,
-            )
+    _upsert_env_values(env_file, updates, console=console)
     return stack_dir, env_file
 
 

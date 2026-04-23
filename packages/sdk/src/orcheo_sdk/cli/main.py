@@ -31,6 +31,8 @@ from orcheo_sdk.cli.service_token import app as service_token_app
 from orcheo_sdk.cli.setup import (
     AuthMode,
     SetupMode,
+    build_generated_stack_env_defaults,
+    ensure_stack_env_file,
     execute_setup,
     print_summary,
     run_setup,
@@ -568,6 +570,42 @@ def install_upgrade_command(
         install_docker=install_docker,
         manual_secrets=manual_secrets,
         forced_mode="upgrade",
+    )
+
+
+@install_app.command("ensure-stack-env")
+def ensure_stack_env_command(
+    ctx: typer.Context,
+    env_file: Annotated[
+        str | None,
+        typer.Option(
+            "--env-file",
+            help="Path to the stack .env file to create or update.",
+        ),
+    ] = None,
+    env_template: Annotated[
+        str | None,
+        typer.Option(
+            "--env-template",
+            help="Path to the .env.example template used to seed missing values.",
+        ),
+    ] = None,
+) -> None:
+    """Create or backfill a stack env file without running full install setup."""
+    stack_dir = _resolve_stack_project_dir()
+    resolved_env_file = (
+        Path(env_file).expanduser() if env_file is not None else stack_dir / ".env"
+    )
+    resolved_env_template = (
+        Path(env_template).expanduser()
+        if env_template is not None
+        else stack_dir / ".env.example"
+    )
+    ensure_stack_env_file(
+        env_file=resolved_env_file,
+        env_template=resolved_env_template,
+        console=_resolve_install_console(ctx),
+        generated_defaults=build_generated_stack_env_defaults(),
     )
 
 

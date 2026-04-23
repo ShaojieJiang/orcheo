@@ -1,5 +1,6 @@
 name: orcheo
-# Note: Services using 'env_file: .env' load variables from .env file.
+# Note: Services using 'env_file' load variables from ORCHEO_STACK_ENV_FILE when set,
+# or from the project-local .env file otherwise.
 # Environment variables explicitly defined in the 'environment' section take precedence
 # over those from env_file. This allows overriding .env values when needed.
 services:
@@ -34,7 +35,7 @@ services:
 
   backend:
     image: ${ORCHEO_STACK_IMAGE:-ghcr.io/ai-colleagues/orcheo-stack:latest}
-    env_file: .env
+    env_file: ${ORCHEO_STACK_ENV_FILE:-.env}
     ports:
       - "127.0.0.1:${ORCHEO_BACKEND_LOCAL_PORT:-8000}:8000"
     volumes:
@@ -85,7 +86,7 @@ services:
 
   worker:
     image: ${ORCHEO_STACK_IMAGE:-ghcr.io/ai-colleagues/orcheo-stack:latest}
-    env_file: .env
+    env_file: ${ORCHEO_STACK_ENV_FILE:-.env}
     volumes:
       - orcheo_data:/data
       - ./workspace/agents:/workspace/agents
@@ -124,7 +125,7 @@ services:
 
   celery-beat:
     image: ${ORCHEO_STACK_IMAGE:-ghcr.io/ai-colleagues/orcheo-stack:latest}
-    env_file: .env
+    env_file: ${ORCHEO_STACK_ENV_FILE:-.env}
     volumes:
       - orcheo_data:/data
       - ./chatkit_widgets:/app/examples/chatkit_widgets/widgets:ro
@@ -163,7 +164,7 @@ services:
 
   canvas:
     image: ${ORCHEO_CANVAS_IMAGE:-ghcr.io/ai-colleagues/orcheo-canvas:latest}
-    env_file: .env
+    env_file: ${ORCHEO_STACK_ENV_FILE:-.env}
     ports:
       - "127.0.0.1:${ORCHEO_CANVAS_LOCAL_PORT:-5173}:5173"
     environment:
@@ -192,7 +193,7 @@ services:
     image: caddy:2
     profiles:
       - public-ingress
-    env_file: .env
+    env_file: ${ORCHEO_STACK_ENV_FILE:-.env}
     depends_on:
       backend:
         condition: service_healthy
