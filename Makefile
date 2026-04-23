@@ -1,9 +1,12 @@
 .PHONY: dev-server test lint format canvas-lint canvas-format canvas-test redis worker celery-beat \
-       docker-up docker-down docker-build docker-logs
+       docker-up docker-down docker-build docker-logs staging-up staging-down staging-restart \
+       staging-build staging-logs staging-config
 
 UV ?= uv
 UV_CACHE_DIR ?= .cache/uv
 UV_RUN = UV_CACHE_DIR=$(UV_CACHE_DIR) $(UV) run
+STACK_DIR ?= deploy/stack
+STAGING_COMPOSE = docker compose -f $(STACK_DIR)/docker-compose.yml -f $(STACK_DIR)/docker-compose.staging.yml --project-directory $(STACK_DIR)
 
 lint:
 	$(UV_RUN) ruff check src/orcheo packages/sdk/src packages/agentensor/src apps/backend/src
@@ -57,3 +60,21 @@ docker-build:
 
 docker-logs:
 	docker compose logs -f
+
+staging-up:
+	$(STAGING_COMPOSE) up -d
+
+staging-down:
+	$(STAGING_COMPOSE) down
+
+staging-restart:
+	$(STAGING_COMPOSE) restart
+
+staging-build:
+	$(STAGING_COMPOSE) build --pull
+
+staging-logs:
+	$(STAGING_COMPOSE) logs -f
+
+staging-config:
+	$(STAGING_COMPOSE) config

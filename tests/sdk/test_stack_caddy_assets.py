@@ -11,6 +11,7 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[2]
 STACK_DIR = REPO_ROOT / "deploy" / "stack"
 COMPOSE_FILE = STACK_DIR / "docker-compose.yml"
+STAGING_COMPOSE_FILE = STACK_DIR / "docker-compose.staging.yml"
 CADDYFILE = STACK_DIR / "Caddyfile"
 ENV_EXAMPLE = STACK_DIR / ".env.example"
 
@@ -82,6 +83,26 @@ def test_env_example_documents_public_ingress_contract() -> None:
     assert "VITE_ALLOWED_HOSTS=localhost,127.0.0.1" in content
 
 
+def test_staging_compose_builds_local_images_from_repo_source() -> None:
+    compose = yaml.safe_load(STAGING_COMPOSE_FILE.read_text(encoding="utf-8"))
+    services = compose["services"]
+
+    assert services["backend"]["image"] == "orcheo-stack:staging-local"
+    assert services["worker"]["image"] == "orcheo-stack:staging-local"
+    assert services["celery-beat"]["image"] == "orcheo-stack:staging-local"
+    assert services["canvas"]["image"] == "orcheo-canvas:staging-local"
+    assert services["backend"]["build"] == {
+        "context": "../..",
+        "dockerfile": "deploy/stack/Dockerfile.orcheo.staging",
+    }
+    assert services["worker"]["build"] == services["backend"]["build"]
+    assert services["celery-beat"]["build"] == services["backend"]["build"]
+    assert services["canvas"]["build"] == {
+        "context": "../..",
+        "dockerfile": "deploy/stack/Dockerfile.canvas.staging",
+    }
+
+
 @pytest.mark.skipif(shutil.which("docker") is None, reason="docker is not available")
 def test_stack_compose_config_renders_with_profiles(tmp_path: Path) -> None:
     temp_stack_dir = tmp_path / "stack"
@@ -109,6 +130,39 @@ def test_stack_compose_config_renders_with_profiles(tmp_path: Path) -> None:
         capture_output=True,
         text=True,
         cwd=temp_stack_dir,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.skipif(shutil.which("docker") is None, reason="docker is not available")
+def test_staging_stack_compose_config_renders(tmp_path: Path) -> None:
+    temp_repo_root = tmp_path / "repo"
+    temp_stack_dir = temp_repo_root / "deploy" / "stack"
+    temp_stack_dir.mkdir(parents=True)
+    for source in (COMPOSE_FILE, STAGING_COMPOSE_FILE, CADDYFILE, ENV_EXAMPLE):
+        target = temp_stack_dir / source.name
+        target.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+    (temp_stack_dir / ".env").write_text(
+        ENV_EXAMPLE.read_text(encoding="utf-8"), encoding="utf-8"
+    )
+
+    result = subprocess.run(
+        [
+            "docker",
+            "compose",
+            "-f",
+            str(temp_stack_dir / "docker-compose.yml"),
+            "-f",
+            str(temp_stack_dir / "docker-compose.staging.yml"),
+            "--project-directory",
+            str(temp_stack_dir),
+            "config",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        cwd=temp_repo_root,
     )
 
     assert result.returncode == 0, result.stderr

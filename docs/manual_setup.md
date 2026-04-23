@@ -17,6 +17,14 @@ If you already have the SDK installed, run `orcheo install` to set up or upgrade
 
 For a complete containerized setup with PostgreSQL, Redis, Celery workers, and Canvas, use the bundled Docker Compose configuration.
 
+### Compose Modes
+
+Orcheo ships with two compose entrypoints plus a staging overlay:
+
+- Root `docker-compose.yml` is for live local development. It bind-mounts source code, runs the backend with `--reload`, and serves Canvas via the Vite dev server.
+- `deploy/stack/docker-compose.yml` is the production-style stack contract. It runs built images with no source bind mounts or hot reload.
+- `deploy/stack/docker-compose.staging.yml` layers on top of the production stack file to build those same services from the current repo checkout on the staging host.
+
 ### Quick Start
 
 1. **Set up the stack** using the CLI (this downloads compose files and creates `.env` automatically):
@@ -84,6 +92,31 @@ docker compose -f "$STACK_DIR/docker-compose.yml" --project-directory "$STACK_DI
 # Refresh to the latest published stack image
 docker compose -f "$STACK_DIR/docker-compose.yml" --project-directory "$STACK_DIR" pull
 docker compose -f "$STACK_DIR/docker-compose.yml" --project-directory "$STACK_DIR" up -d
+```
+
+### Staging From A Repo Checkout
+
+Use this flow when a staging machine should run the production-style stack but build images directly from unreleased source code in the current git checkout.
+
+```bash
+git pull
+# create or update deploy/stack/.env for this environment
+make staging-build
+make staging-up
+```
+
+These targets use `deploy/stack/docker-compose.yml` together with `deploy/stack/docker-compose.staging.yml`. The resulting stack:
+
+- keeps the production service topology
+- builds backend, worker, beat, and Canvas from local source
+- avoids source bind mounts and hot reload
+
+Useful commands:
+
+```bash
+make staging-config
+make staging-logs
+make staging-down
 ```
 
 ### Local Testing Without OAuth

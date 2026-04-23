@@ -112,6 +112,38 @@ Bundled Caddy is appropriate for standard self-hosted installs and moderate scal
 - WAF, bot management, or DDoS shielding
 - platform-native ingress on Kubernetes or managed container platforms
 
+## Source-Built Staging Host
+
+Use this recipe when the staging machine deploys from a full git checkout and should stay close to the production stack without waiting for package or image releases.
+
+1. **Pull the latest code on the staging host**
+   ```bash
+   git pull
+   ```
+2. **Configure stack environment values**
+   - Create or update `deploy/stack/.env` with the same environment contract used by the production stack.
+   - Start from `deploy/stack/.env.example` if the staging host does not already have an environment file.
+3. **Build the staging images from source**
+   ```bash
+   make staging-build
+   ```
+4. **Start the production-style staging stack**
+   ```bash
+   make staging-up
+   ```
+5. **Inspect or stop the stack when needed**
+   ```bash
+   make staging-config
+   make staging-logs
+   make staging-down
+   ```
+
+The staging targets combine `deploy/stack/docker-compose.yml` with `deploy/stack/docker-compose.staging.yml`. This keeps the same runtime topology as production while swapping published images for local source builds:
+
+- backend, worker, and beat are built from the monorepo checkout
+- Canvas is built from local `apps/canvas` source and served by nginx
+- there are no source bind mounts, Vite dev server processes, or backend `--reload` flags
+
 ## Cloudflare Tunnel Or Similar Split-Origin Tunnel
 
 Use this recipe when the host is not directly reachable or when you intentionally keep Canvas and backend on separate public hostnames behind a tunnel. In this topology, bundled Caddy stays off and the tunnel forwards to the direct localhost ports published by backend and Canvas.
