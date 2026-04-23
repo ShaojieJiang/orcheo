@@ -28,14 +28,12 @@ RUN chmod +x /usr/local/bin/orcheo-entrypoint
 COPY pyproject.toml uv.lock README.md ./
 COPY packages/ packages/
 COPY apps/backend/ apps/backend/
+COPY src/ src/
 
 RUN uv sync --frozen
 RUN uv run python -m playwright install --with-deps chromium chromium-headless-shell \
     && chown -R orcheo:orcheo "$PLAYWRIGHT_BROWSERS_PATH"
 RUN uv tool install --no-cache -U skill-mgr
-
-# Copy the remaining source after dependency installation.
-COPY src/ src/
 
 ENV PATH=/app/.venv/bin:$PATH
 ENV PYTHONPATH=/app/src:/app/apps/backend/src:/app/packages/sdk/src:/app/packages/agentensor/src
