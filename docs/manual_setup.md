@@ -100,7 +100,8 @@ Use this flow when a staging machine should run the production-style stack but b
 
 ```bash
 git pull
-# create or update deploy/stack/.env for this environment
+# make staging-* will reuse ~/.orcheo/stack/.env when present,
+# or create it from deploy/stack/.env.example on first run
 make staging-build
 make staging-up
 ```

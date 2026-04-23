@@ -654,6 +654,66 @@ def test_upsert_env_values(tmp_path):
     assert "Updated stack env file" in console.file.getvalue()
 
 
+def test_ensure_stack_env_file_creates_env_and_generates_defaults(tmp_path):
+    env_template = tmp_path / ".env.example"
+    env_template.write_text(
+        "ORCHEO_POSTGRES_PASSWORD=change-me\n"
+        "ORCHEO_VAULT_ENCRYPTION_KEY=replace-with-64-hex-chars\n"
+        "ORCHEO_CHATKIT_TOKEN_SIGNING_KEY=strong-random-secret\n"
+        "VITE_ORCHEO_CHATKIT_DOMAIN_KEY=domain_pk_replace_me\n",
+        encoding="utf-8",
+    )
+    env_file = tmp_path / ".env"
+
+    setup.ensure_stack_env_file(
+        env_file=env_file,
+        env_template=env_template,
+        console=make_console(),
+        generated_defaults={
+            "ORCHEO_POSTGRES_PASSWORD": "generated-password",
+            "ORCHEO_VAULT_ENCRYPTION_KEY": "generated-vault-key",
+            "ORCHEO_CHATKIT_TOKEN_SIGNING_KEY": "generated-signing-key",
+        },
+    )
+
+    result = env_file.read_text(encoding="utf-8")
+    assert "ORCHEO_POSTGRES_PASSWORD=generated-password" in result
+    assert "ORCHEO_VAULT_ENCRYPTION_KEY=generated-vault-key" in result
+    assert "ORCHEO_CHATKIT_TOKEN_SIGNING_KEY=generated-signing-key" in result
+    assert "VITE_ORCHEO_CHATKIT_DOMAIN_KEY=domain_pk_replace_me" in result
+
+
+def test_ensure_stack_env_file_preserves_existing_values_and_backfills_missing(
+    tmp_path,
+):
+    env_template = tmp_path / ".env.example"
+    env_template.write_text(
+        "ORCHEO_POSTGRES_PASSWORD=change-me\n"
+        "ORCHEO_VAULT_ENCRYPTION_KEY=replace-with-64-hex-chars\n"
+        "VITE_ORCHEO_CHATKIT_DOMAIN_KEY=domain_pk_replace_me\n",
+        encoding="utf-8",
+    )
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "ORCHEO_POSTGRES_PASSWORD=existing-password\n", encoding="utf-8"
+    )
+
+    setup.ensure_stack_env_file(
+        env_file=env_file,
+        env_template=env_template,
+        console=make_console(),
+        generated_defaults={
+            "ORCHEO_POSTGRES_PASSWORD": "generated-password",
+            "ORCHEO_VAULT_ENCRYPTION_KEY": "generated-vault-key",
+        },
+    )
+
+    result = env_file.read_text(encoding="utf-8")
+    assert "ORCHEO_POSTGRES_PASSWORD=existing-password" in result
+    assert "ORCHEO_VAULT_ENCRYPTION_KEY=generated-vault-key" in result
+    assert "VITE_ORCHEO_CHATKIT_DOMAIN_KEY=domain_pk_replace_me" in result
+
+
 def test_ensure_stack_assets_fresh(monkeypatch, tmp_path):
     monkeypatch.setenv("ORCHEO_STACK_DIR", str(tmp_path))
 
@@ -702,9 +762,15 @@ def test_ensure_stack_assets_existing_env(monkeypatch, tmp_path):
     (tmp_path / ".env").write_text(
         "ORCHEO_API_URL=http://existing\nVITE_ORCHEO_BACKEND_URL=http://existing"
     )
-    monkeypatch.setattr(
-        setup, "_sync_stack_assets_with_best_source", lambda *args, **kwargs: "1.0"
-    )
+
+    def stub_sync(stack_dir, stack_version, console):
+        del stack_version, console
+        (stack_dir / ".env.example").write_text(
+            "VITE_ORCHEO_CHATKIT_DOMAIN_KEY=domain_pk_replace_me\n", encoding="utf-8"
+        )
+        return "1.0"
+
+    monkeypatch.setattr(setup, "_sync_stack_assets_with_best_source", stub_sync)
     updates = []
 
     def upsert(env_file, updates_dict, **kwargs):

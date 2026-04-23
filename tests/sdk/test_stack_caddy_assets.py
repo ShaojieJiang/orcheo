@@ -20,6 +20,11 @@ def test_stack_compose_defines_public_ingress_and_direct_ports() -> None:
     compose = yaml.safe_load(COMPOSE_FILE.read_text(encoding="utf-8"))
     services = compose["services"]
 
+    assert services["backend"]["env_file"] == "${ORCHEO_STACK_ENV_FILE:-.env}"
+    assert services["worker"]["env_file"] == "${ORCHEO_STACK_ENV_FILE:-.env}"
+    assert services["celery-beat"]["env_file"] == "${ORCHEO_STACK_ENV_FILE:-.env}"
+    assert services["canvas"]["env_file"] == "${ORCHEO_STACK_ENV_FILE:-.env}"
+    assert services["caddy"]["env_file"] == "${ORCHEO_STACK_ENV_FILE:-.env}"
     assert (
         "127.0.0.1:${ORCHEO_BACKEND_LOCAL_PORT:-8000}:8000"
         in services["backend"]["ports"]

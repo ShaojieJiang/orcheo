@@ -1,12 +1,15 @@
 .PHONY: dev-server test lint format canvas-lint canvas-format canvas-test redis worker celery-beat \
-       docker-up docker-down docker-build docker-logs staging-up staging-down staging-restart \
+       docker-up docker-down docker-build docker-logs staging-env staging-up staging-down staging-restart \
        staging-build staging-logs staging-config
 
 UV ?= uv
 UV_CACHE_DIR ?= .cache/uv
 UV_RUN = UV_CACHE_DIR=$(UV_CACHE_DIR) $(UV) run
 STACK_DIR ?= deploy/stack
-STAGING_COMPOSE = docker compose -f $(STACK_DIR)/docker-compose.yml -f $(STACK_DIR)/docker-compose.staging.yml --project-directory $(STACK_DIR)
+STACK_ENV_DIR ?= $(HOME)/.orcheo/stack
+STACK_ENV_FILE ?= $(STACK_ENV_DIR)/.env
+STACK_ENV_TEMPLATE ?= $(STACK_DIR)/.env.example
+STAGING_COMPOSE = ORCHEO_STACK_ENV_FILE=$(STACK_ENV_FILE) docker compose --env-file $(STACK_ENV_FILE) -f $(STACK_DIR)/docker-compose.yml -f $(STACK_DIR)/docker-compose.staging.yml --project-directory $(STACK_DIR)
 
 lint:
 	$(UV_RUN) ruff check src/orcheo packages/sdk/src packages/agentensor/src apps/backend/src
@@ -61,20 +64,23 @@ docker-build:
 docker-logs:
 	docker compose logs -f
 
-staging-up:
+staging-env:
+	$(UV_RUN) orcheo install ensure-stack-env --env-file "$(STACK_ENV_FILE)" --env-template "$(STACK_ENV_TEMPLATE)"
+
+staging-up: staging-env
 	$(STAGING_COMPOSE) up -d
 
-staging-down:
+staging-down: staging-env
 	$(STAGING_COMPOSE) down
 
-staging-restart:
+staging-restart: staging-env
 	$(STAGING_COMPOSE) restart
 
-staging-build:
+staging-build: staging-env
 	$(STAGING_COMPOSE) build --pull
 
-staging-logs:
+staging-logs: staging-env
 	$(STAGING_COMPOSE) logs -f
 
-staging-config:
+staging-config: staging-env
 	$(STAGING_COMPOSE) config

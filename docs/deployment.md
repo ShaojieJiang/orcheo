@@ -121,8 +121,8 @@ Use this recipe when the staging machine deploys from a full git checkout and sh
    git pull
    ```
 2. **Configure stack environment values**
-   - Create or update `deploy/stack/.env` with the same environment contract used by the production stack.
-   - Start from `deploy/stack/.env.example` if the staging host does not already have an environment file.
+   - `make staging-*` reuses `~/.orcheo/stack/.env` when it already exists.
+   - On first run it creates `~/.orcheo/stack/.env` from `deploy/stack/.env.example`, then preserves later edits while backfilling newly introduced keys.
 3. **Build the staging images from source**
    ```bash
    make staging-build
