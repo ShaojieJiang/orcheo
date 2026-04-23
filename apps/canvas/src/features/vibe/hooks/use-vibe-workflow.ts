@@ -44,6 +44,15 @@ const writeCachedWorkflowId = (id: string): void => {
   }
 };
 
+const clearCachedWorkflowId = (): void => {
+  cachedWorkflowId = null;
+  try {
+    localStorage.removeItem(WORKFLOW_ID_STORAGE_KEY);
+  } catch {
+    // Silently ignore storage errors.
+  }
+};
+
 let cachedWorkflowId: string | null = readCachedWorkflowId();
 
 const asRecord = (value: unknown): Record<string, unknown> | null =>
@@ -174,16 +183,20 @@ export function useVibeWorkflow(
       if (provisioningRef.current) return;
 
       if (cachedWorkflowId) {
-        await Promise.all([
-          syncManagedTemplate(cachedWorkflowId),
-          syncSupportedModels(cachedWorkflowId, models),
-        ]);
-        setWorkflowState({
-          workflowId: cachedWorkflowId,
-          isProvisioning: false,
-          error: null,
-        });
-        return;
+        try {
+          await Promise.all([
+            syncManagedTemplate(cachedWorkflowId),
+            syncSupportedModels(cachedWorkflowId, models),
+          ]);
+          setWorkflowState({
+            workflowId: cachedWorkflowId,
+            isProvisioning: false,
+            error: null,
+          });
+          return;
+        } catch {
+          clearCachedWorkflowId();
+        }
       }
 
       provisioningRef.current = true;
