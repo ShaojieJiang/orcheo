@@ -49,10 +49,10 @@ same_path_target() {
 }
 
 agent_skills_installed() {
-  [ -f "$HOME/.claude/skills/orcheo/SKILL.md" ] \
-    && [ -f "$HOME/.codex/skills/orcheo/SKILL.md" ] \
+  [ -f "$claude_home/skills/orcheo/SKILL.md" ] \
+    && [ -f "$codex_home/skills/orcheo/SKILL.md" ] \
     && [ -f "$HOME/.orcheo/skills/orcheo/SKILL.md" ] \
-    && [ -f "$HOME/.gemini/skills/orcheo/SKILL.md" ]
+    && [ -f "$gemini_home/skills/orcheo/SKILL.md" ]
 }
 
 install_agent_skills() {
@@ -92,10 +92,10 @@ install_agent_skills_as_runtime_user() {
           exit 0
           ;;
       esac
-      if [ -f "$HOME/.claude/skills/orcheo/SKILL.md" ] \
-        && [ -f "$HOME/.codex/skills/orcheo/SKILL.md" ] \
+      if [ -f "$CLAUDE_CONFIG_DIR/skills/orcheo/SKILL.md" ] \
+        && [ -f "$CODEX_HOME/skills/orcheo/SKILL.md" ] \
         && [ -f "$HOME/.orcheo/skills/orcheo/SKILL.md" ] \
-        && [ -f "$HOME/.gemini/skills/orcheo/SKILL.md" ]; then
+        && [ -f "$GEMINI_CONFIG_DIR/skills/orcheo/SKILL.md" ]; then
         exit 0
       fi
       if ! command -v skill-mgr >/dev/null 2>&1; then

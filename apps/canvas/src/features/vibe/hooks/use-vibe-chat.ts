@@ -82,6 +82,12 @@ export function useVibeChat(workflowId: string | null) {
       setSessionError(null);
       return;
     }
+
+    secretRef.current = null;
+    expiresAtRef.current = null;
+    setHasSession(false);
+    setSessionError(null);
+
     void refreshSession();
   }, [workflowId, refreshSession]);
 
