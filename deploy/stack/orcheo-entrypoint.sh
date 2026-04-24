@@ -14,11 +14,16 @@ export HOME="$home_dir"
 
 codex_home="${CODEX_HOME:-$HOME/.codex}"
 claude_home="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+gemini_home="${GEMINI_CONFIG_DIR:-$HOME/.gemini}"
+xdg_config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+xdg_cache_home="${XDG_CACHE_HOME:-$HOME/.cache}"
+xdg_data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
 runtime_root="/data/agent-runtimes"
 cache_dir="${ORCHEO_CACHE_DIR:-/data/cache/orcheo}"
 plugin_dir="${ORCHEO_PLUGIN_DIR:-/data/plugins}"
 uv_cache_dir="${UV_CACHE_DIR:-/data/cache/uv}"
 workspace_root="/workspace/agents"
+skill_ref="${ORCHEO_AGENT_SKILL_REF:-AI-Colleagues/agent-skills/orcheo}"
 
 ensure_dir() {
   dir_path="$1"
@@ -43,11 +48,72 @@ same_path_target() {
   [ "$(stat -c '%d:%i' "$left")" = "$(stat -c '%d:%i' "$right")" ]
 }
 
+agent_skills_installed() {
+  [ -f "$HOME/.claude/skills/orcheo/SKILL.md" ] \
+    && [ -f "$HOME/.codex/skills/orcheo/SKILL.md" ] \
+    && [ -f "$HOME/.orcheo/skills/orcheo/SKILL.md" ] \
+    && [ -f "$HOME/.gemini/skills/orcheo/SKILL.md" ]
+}
+
+install_agent_skills() {
+  case "${ORCHEO_INSTALL_AGENT_SKILLS:-1}" in
+    0|false|False|FALSE|no|No|NO)
+      return
+      ;;
+  esac
+
+  if agent_skills_installed || ! command -v skill-mgr >/dev/null 2>&1; then
+    return
+  fi
+
+  if ! skill-mgr install "$skill_ref" --format json >/dev/null; then
+    echo "Warning: failed to install Orcheo agent skills with skill-mgr." >&2
+  fi
+}
+
+install_agent_skills_as_runtime_user() {
+  gosu "$runtime_user:$runtime_group" env \
+    HOME="$HOME" \
+    ORCHEO_RUNTIME_HOME="$home_dir" \
+    ORCHEO_RUNTIME_USER="$runtime_user" \
+    ORCHEO_RUNTIME_GROUP="$runtime_group" \
+    CODEX_HOME="$codex_home" \
+    CLAUDE_CONFIG_DIR="$claude_home" \
+    GEMINI_CONFIG_DIR="$gemini_home" \
+    XDG_CONFIG_HOME="$xdg_config_home" \
+    XDG_CACHE_HOME="$xdg_cache_home" \
+    XDG_DATA_HOME="$xdg_data_home" \
+    ORCHEO_AGENT_SKILL_REF="$skill_ref" \
+    ORCHEO_INSTALL_AGENT_SKILLS="${ORCHEO_INSTALL_AGENT_SKILLS:-1}" \
+    PATH="$PATH" \
+    sh -c '
+      case "${ORCHEO_INSTALL_AGENT_SKILLS:-1}" in
+        0|false|False|FALSE|no|No|NO)
+          exit 0
+          ;;
+      esac
+      if [ -f "$HOME/.claude/skills/orcheo/SKILL.md" ] \
+        && [ -f "$HOME/.codex/skills/orcheo/SKILL.md" ] \
+        && [ -f "$HOME/.orcheo/skills/orcheo/SKILL.md" ] \
+        && [ -f "$HOME/.gemini/skills/orcheo/SKILL.md" ]; then
+        exit 0
+      fi
+      if ! command -v skill-mgr >/dev/null 2>&1; then
+        exit 0
+      fi
+      if ! skill-mgr install "$ORCHEO_AGENT_SKILL_REF" --format json >/dev/null; then
+        echo "Warning: failed to install Orcheo agent skills with skill-mgr." >&2
+      fi
+    '
+}
+
 if [ "$(id -u)" -eq 0 ]; then
   ensure_dir /data
   ensure_dir "$HOME" true
   ensure_dir "$codex_home" true
   ensure_dir "$claude_home" true
+  ensure_dir "$HOME/.orcheo" true
+  ensure_dir "$gemini_home" true
   ensure_dir "$runtime_root" true
   ensure_dir "$cache_dir" true
   ensure_dir "$plugin_dir" true
@@ -64,7 +130,23 @@ if [ "$(id -u)" -eq 0 ]; then
     ensure_dir /app/.venv true
   fi
 
-  exec gosu "$runtime_user:$runtime_group" "$@"
+  install_agent_skills_as_runtime_user
+
+  exec gosu "$runtime_user:$runtime_group" env \
+    HOME="$HOME" \
+    ORCHEO_RUNTIME_HOME="$home_dir" \
+    ORCHEO_RUNTIME_USER="$runtime_user" \
+    ORCHEO_RUNTIME_GROUP="$runtime_group" \
+    CODEX_HOME="$codex_home" \
+    CLAUDE_CONFIG_DIR="$claude_home" \
+    GEMINI_CONFIG_DIR="$gemini_home" \
+    XDG_CONFIG_HOME="$xdg_config_home" \
+    XDG_CACHE_HOME="$xdg_cache_home" \
+    XDG_DATA_HOME="$xdg_data_home" \
+    PATH="$PATH" \
+    "$@"
 fi
+
+install_agent_skills
 
 exec "$@"

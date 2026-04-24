@@ -226,9 +226,19 @@ def _install_agent_skills(*, console: Console, should_install: bool) -> None:
         return
     skill_mgr_bin = shutil.which("skill-mgr")
     if skill_mgr_bin:
-        cmd = [skill_mgr_bin, "install", "AI-Colleagues/agent-skills/orcheo"]
+        cmd = [
+            skill_mgr_bin,
+            "install",
+            "AI-Colleagues/agent-skills/orcheo",
+        ]
     else:
-        cmd = ["uv", "run", "skill-mgr", "install", "AI-Colleagues/agent-skills/orcheo"]
+        cmd = [
+            "uv",
+            "run",
+            "skill-mgr",
+            "install",
+            "AI-Colleagues/agent-skills/orcheo",
+        ]
     console.print(f"[cyan]$ {' '.join(cmd)}[/cyan]")
     result = subprocess.run(cmd, check=False)
     if result.returncode != 0:

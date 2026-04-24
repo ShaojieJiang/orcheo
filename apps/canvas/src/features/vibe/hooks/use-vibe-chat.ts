@@ -11,6 +11,7 @@ export function useVibeChat(workflowId: string | null) {
   const [sessionStatus, setSessionStatus] =
     useState<VibeChatSessionStatus>("idle");
   const [sessionError, setSessionError] = useState<string | null>(null);
+  const [hasSession, setHasSession] = useState(false);
   const secretRef = useRef<string | null>(null);
   const expiresAtRef = useRef<number | null>(null);
   const refreshingRef = useRef(false);
@@ -35,6 +36,7 @@ export function useVibeChat(workflowId: string | null) {
         const session = await requestWorkflowChatSession(workflowId);
         secretRef.current = session.clientSecret;
         expiresAtRef.current = session.expiresAt;
+        setHasSession(true);
         setSessionStatus("ready");
         refreshingRef.current = false;
         return session.clientSecret;
@@ -49,6 +51,7 @@ export function useVibeChat(workflowId: string | null) {
         : "Chat session request failed";
     secretRef.current = null;
     expiresAtRef.current = null;
+    setHasSession(false);
     setSessionStatus("error");
     setSessionError(message);
     refreshingRef.current = false;
@@ -74,6 +77,7 @@ export function useVibeChat(workflowId: string | null) {
     if (!workflowId) {
       secretRef.current = null;
       expiresAtRef.current = null;
+      setHasSession(false);
       setSessionStatus("idle");
       setSessionError(null);
       return;
@@ -81,5 +85,11 @@ export function useVibeChat(workflowId: string | null) {
     void refreshSession();
   }, [workflowId, refreshSession]);
 
-  return { getClientSecret, sessionStatus, sessionError, refreshSession };
+  return {
+    getClientSecret,
+    sessionStatus,
+    sessionError,
+    hasSession,
+    refreshSession,
+  };
 }

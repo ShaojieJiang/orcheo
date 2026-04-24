@@ -31,7 +31,7 @@ export function VibeSidebar({ isCollapsed = false }: VibeSidebarProps) {
     contextString,
   } = useVibe();
 
-  const { getClientSecret, sessionStatus, refreshSession } =
+  const { getClientSecret, sessionStatus, hasSession, refreshSession } =
     useVibeChat(agentWorkflowId);
 
   const colorScheme = useColorScheme();
@@ -86,7 +86,7 @@ export function VibeSidebar({ isCollapsed = false }: VibeSidebarProps) {
       );
     }
 
-    if (sessionStatus === "loading") {
+    if (sessionStatus === "loading" && !hasSession) {
       return (
         <div className="flex flex-1 flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="h-5 w-5 animate-spin" />
@@ -121,7 +121,7 @@ export function VibeSidebar({ isCollapsed = false }: VibeSidebarProps) {
     }
 
     return null;
-  }, [isProvisioning, sessionStatus, refreshSession]);
+  }, [hasSession, isProvisioning, sessionStatus, refreshSession]);
 
   if (isCollapsed) {
     return (
@@ -179,9 +179,13 @@ export function VibeSidebar({ isCollapsed = false }: VibeSidebarProps) {
           </Button>
         </div>
       ) : (
-        <div className={cn("flex flex-1 flex-col overflow-hidden px-2 py-2")}>
-          {statusView}
-          {!statusView && agentWorkflowId && (
+        <div className="relative flex flex-1 flex-col overflow-hidden px-2 py-2">
+          {statusView && (
+            <div className="absolute inset-2 z-10 flex rounded-md bg-background/95">
+              {statusView}
+            </div>
+          )}
+          {agentWorkflowId && sessionStatus !== "error" && (
             <Suspense
               fallback={
                 <div className="flex h-full w-full flex-col gap-3">
@@ -193,7 +197,9 @@ export function VibeSidebar({ isCollapsed = false }: VibeSidebarProps) {
               <ChatKitSurfaceLazy
                 options={chatKitOptions}
                 className={cn(
-                  sessionStatus !== "ready" && "pointer-events-none opacity-50",
+                  (isProvisioning ||
+                    (sessionStatus === "loading" && !hasSession)) &&
+                    "pointer-events-none opacity-50",
                 )}
               />
             </Suspense>
