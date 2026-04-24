@@ -796,6 +796,11 @@ def test_install_agent_skills_with_skill_mgr_found(
     monkeypatch.setattr(main_mod.subprocess, "run", fake_run)
     main_mod._install_agent_skills(console=console, should_install=True)
     assert ran_cmds[0][0] == "/usr/bin/skill-mgr"
+    assert ran_cmds[0] == [
+        "/usr/bin/skill-mgr",
+        "install",
+        "AI-Colleagues/agent-skills/orcheo",
+    ]
 
 
 def test_install_agent_skills_without_skill_mgr_falls_back_to_uv(
@@ -816,6 +821,11 @@ def test_install_agent_skills_without_skill_mgr_falls_back_to_uv(
     monkeypatch.setattr(main_mod.subprocess, "run", fake_run)
     main_mod._install_agent_skills(console=console, should_install=True)
     assert ran_cmds[0][:2] == ["uv", "run"]
+    assert ran_cmds[0][2:] == [
+        "skill-mgr",
+        "install",
+        "AI-Colleagues/agent-skills/orcheo",
+    ]
 
 
 def test_install_agent_skills_nonzero_exit_prints_warning(

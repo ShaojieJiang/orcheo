@@ -19,7 +19,8 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 RUN printf '%s\n' '#!/bin/sh' 'exec uv tool run "$@"' > /usr/local/bin/uvx \
     && chmod +x /usr/local/bin/uvx
 RUN groupadd --gid 1000 orcheo \
-    && useradd --uid 1000 --gid 1000 --create-home --shell /bin/sh orcheo
+    && mkdir -p /data/home \
+    && useradd --uid 1000 --gid 1000 --home-dir /data/home --create-home --shell /bin/sh orcheo
 COPY deploy/stack/orcheo-entrypoint.sh /usr/local/bin/orcheo-entrypoint
 RUN chmod +x /usr/local/bin/orcheo-entrypoint
 
@@ -32,6 +33,9 @@ COPY apps/backend/ apps/backend/
 RUN uv sync --frozen
 RUN uv run python -m playwright install --with-deps chromium chromium-headless-shell \
     && chown -R orcheo:orcheo "$PLAYWRIGHT_BROWSERS_PATH"
+RUN HOME=/data/home UV_TOOL_DIR=/usr/local/share/uv/tools UV_TOOL_BIN_DIR=/usr/local/bin \
+    uv tool install --no-cache -U skill-mgr
+ENV PATH=/app/.venv/bin:$PATH
 
 # Copy the rest of the application
 COPY src/ src/

@@ -9,6 +9,7 @@ from orcheo_backend.app.chatkit_asset_proxy import (
     _RESPONSE_HEADER_ALLOWLIST,
     _inject_fetch_guard,
     _normalize_path_prefix,
+    _rewrite_chatkit_html,
     _sanitize_asset_path,
     proxy_chatkit_asset,
 )
@@ -100,6 +101,13 @@ def test_inject_fetch_guard_inserts_after_head() -> None:
     result = _inject_fetch_guard(html)
     assert "data-orcheo-fetch-guard" in result
     assert result.index("data-orcheo-fetch-guard") < result.index("<title>")
+
+
+def test_rewrite_chatkit_html_injects_fetch_guard() -> None:
+    """Proxied ChatKit HTML includes the fetch guard."""
+    html = "<html><head></head><body><div id='root'></div></body></html>"
+    result = _rewrite_chatkit_html(html, "/api/chatkit/assets/ck1/")
+    assert "data-orcheo-fetch-guard" in result
 
 
 @pytest.mark.asyncio

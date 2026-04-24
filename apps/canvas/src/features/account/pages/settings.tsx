@@ -29,7 +29,7 @@ export default function Settings() {
   } = useCredentialVault();
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="flex h-full min-h-0 flex-col overflow-y-auto">
       <TopNavigation
         credentials={credentials}
         isCredentialsLoading={isCredentialsLoading}
