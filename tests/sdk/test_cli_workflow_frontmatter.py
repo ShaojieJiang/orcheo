@@ -1,0 +1,341 @@
+"""Tests for workflow Python file frontmatter parsing and integration."""
+
+from __future__ import annotations
+import json
+from pathlib import Path
+import httpx
+import pytest
+import respx
+from typer.testing import CliRunner
+from orcheo_sdk.cli.errors import CLIError
+from orcheo_sdk.cli.main import app
+from orcheo_sdk.cli.workflow.frontmatter import (
+    WorkflowFrontmatter,
+    load_workflow_frontmatter,
+    parse_workflow_frontmatter,
+    resolve_frontmatter_config,
+)
+
+
+def test_parse_returns_empty_when_no_block() -> None:
+    source = "# regular comment\nprint('hello')\n"
+    fm = parse_workflow_frontmatter(source)
+    assert fm == WorkflowFrontmatter()
+    assert fm.is_empty
+
+
+def test_parse_extracts_all_fields() -> None:
+    source = (
+        "# /// orcheo\n"
+        '# name = "My Workflow"\n'
+        '# id = "wf-abc123"\n'
+        '# config = "./wf.config.json"\n'
+        '# entrypoint = "build_graph"\n'
+        "# ///\n"
+        "print('hello')\n"
+    )
+    fm = parse_workflow_frontmatter(source)
+    assert fm.name == "My Workflow"
+    assert fm.workflow_id == "wf-abc123"
+    assert fm.config_path == "./wf.config.json"
+    assert fm.entrypoint == "build_graph"
+    assert not fm.is_empty
+
+
+def test_parse_accepts_handle_alias() -> None:
+    source = '# /// orcheo\n# handle = "wf-handle"\n# ///\n'
+    fm = parse_workflow_frontmatter(source)
+    assert fm.workflow_id == "wf-handle"
+
+
+def test_parse_rejects_id_and_handle_together() -> None:
+    source = '# /// orcheo\n# id = "x"\n# handle = "y"\n# ///\n'
+    with pytest.raises(CLIError, match="must not specify both 'id' and 'handle'"):
+        parse_workflow_frontmatter(source)
+
+
+def test_parse_rejects_unknown_field() -> None:
+    source = '# /// orcheo\n# bogus = "x"\n# ///\n'
+    with pytest.raises(CLIError, match="Unknown 'orcheo' frontmatter field"):
+        parse_workflow_frontmatter(source)
+
+
+def test_parse_rejects_non_string_field() -> None:
+    source = "# /// orcheo\n# name = 123\n# ///\n"
+    with pytest.raises(CLIError, match="must be a string"):
+        parse_workflow_frontmatter(source)
+
+
+def test_parse_rejects_empty_string_field() -> None:
+    source = '# /// orcheo\n# name = "   "\n# ///\n'
+    with pytest.raises(CLIError, match="must not be empty"):
+        parse_workflow_frontmatter(source)
+
+
+def test_parse_rejects_invalid_toml() -> None:
+    source = '# /// orcheo\n# name = "unterminated\n# ///\n'
+    with pytest.raises(CLIError, match="Invalid TOML"):
+        parse_workflow_frontmatter(source)
+
+
+def test_parse_rejects_multiple_blocks() -> None:
+    source = (
+        "# /// orcheo\n"
+        '# name = "first"\n'
+        "# ///\n"
+        "\n"
+        "# /// orcheo\n"
+        '# name = "second"\n'
+        "# ///\n"
+    )
+    with pytest.raises(CLIError, match="Multiple 'orcheo' frontmatter blocks"):
+        parse_workflow_frontmatter(source)
+
+
+def test_parse_ignores_other_block_types() -> None:
+    """A non-orcheo PEP 723 block (e.g., 'script') is left alone."""
+    source = (
+        "# /// script\n"
+        '# requires-python = ">=3.12"\n'
+        "# ///\n"
+        "\n"
+        "# /// orcheo\n"
+        '# name = "Real Workflow"\n'
+        "# ///\n"
+    )
+    fm = parse_workflow_frontmatter(source)
+    assert fm.name == "Real Workflow"
+
+
+def test_load_from_file_reads_source(tmp_path: Path) -> None:
+    py_file = tmp_path / "wf.py"
+    py_file.write_text(
+        '# /// orcheo\n# name = "From File"\n# ///\n',
+        encoding="utf-8",
+    )
+    fm = load_workflow_frontmatter(py_file)
+    assert fm.name == "From File"
+
+
+def test_resolve_config_relative_to_workflow(tmp_path: Path) -> None:
+    workflow = tmp_path / "wf.py"
+    workflow.write_text("# noop", encoding="utf-8")
+    config = tmp_path / "wf.config.json"
+    config.write_text(json.dumps({"tags": ["alpha"]}), encoding="utf-8")
+
+    data = resolve_frontmatter_config(workflow, "wf.config.json")
+    assert data == {"tags": ["alpha"]}
+
+
+def test_resolve_config_missing_file_raises(tmp_path: Path) -> None:
+    workflow = tmp_path / "wf.py"
+    workflow.write_text("# noop", encoding="utf-8")
+
+    with pytest.raises(CLIError, match="does not exist"):
+        resolve_frontmatter_config(workflow, "missing.config.json")
+
+
+def test_resolve_config_rejects_directory(tmp_path: Path) -> None:
+    workflow = tmp_path / "wf.py"
+    workflow.write_text("# noop", encoding="utf-8")
+    (tmp_path / "configdir").mkdir()
+
+    with pytest.raises(CLIError, match="is not a file"):
+        resolve_frontmatter_config(workflow, "configdir")
+
+
+def test_resolve_config_rejects_invalid_json(tmp_path: Path) -> None:
+    workflow = tmp_path / "wf.py"
+    workflow.write_text("# noop", encoding="utf-8")
+    bad = tmp_path / "bad.json"
+    bad.write_text("{ not json", encoding="utf-8")
+
+    with pytest.raises(CLIError, match="Invalid JSON"):
+        resolve_frontmatter_config(workflow, "bad.json")
+
+
+def test_resolve_config_rejects_non_object(tmp_path: Path) -> None:
+    workflow = tmp_path / "wf.py"
+    workflow.write_text("# noop", encoding="utf-8")
+    arr = tmp_path / "arr.json"
+    arr.write_text("[1, 2, 3]", encoding="utf-8")
+
+    with pytest.raises(CLIError, match="must contain a JSON object"):
+        resolve_frontmatter_config(workflow, "arr.json")
+
+
+def _langgraph_script_with_frontmatter(
+    *,
+    workflow_id: str | None = None,
+    name: str | None = None,
+    config_path: str | None = None,
+    entrypoint: str | None = None,
+) -> str:
+    lines = ["# /// orcheo"]
+    if name is not None:
+        lines.append(f'# name = "{name}"')
+    if workflow_id is not None:
+        lines.append(f'# id = "{workflow_id}"')
+    if config_path is not None:
+        lines.append(f'# config = "{config_path}"')
+    if entrypoint is not None:
+        lines.append(f'# entrypoint = "{entrypoint}"')
+    lines.append("# ///")
+    lines.append("")
+    lines.append("from langgraph.graph import StateGraph")
+    lines.append("")
+    lines.append("def build_graph():")
+    lines.append("    return StateGraph(dict)")
+    return "\n".join(lines) + "\n"
+
+
+def test_upload_uses_frontmatter_id_for_existing_workflow(
+    runner: CliRunner, env: dict[str, str], tmp_path: Path
+) -> None:
+    """Frontmatter id triggers the update path without needing --id."""
+    py_file = tmp_path / "wf.py"
+    py_file.write_text(
+        _langgraph_script_with_frontmatter(workflow_id="wf-known"),
+        encoding="utf-8",
+    )
+
+    existing_workflow = {"id": "wf-known", "name": "existing"}
+    created_version = {"id": "v-2", "version": 2, "workflow_id": "wf-known"}
+    with respx.mock(assert_all_called=True) as router:
+        router.get("http://api.test/api/workflows/wf-known").mock(
+            return_value=httpx.Response(200, json=existing_workflow)
+        )
+        router.post("http://api.test/api/workflows/wf-known/versions/ingest").mock(
+            return_value=httpx.Response(201, json=created_version)
+        )
+        result = runner.invoke(
+            app,
+            ["workflow", "upload", str(py_file)],
+            env=env,
+        )
+
+    assert result.exit_code == 0, result.stdout
+    assert "Ingested LangGraph script as version 2" in result.stdout
+
+
+def test_upload_uses_frontmatter_name_when_creating(
+    runner: CliRunner, env: dict[str, str], tmp_path: Path
+) -> None:
+    """Frontmatter name overrides the filename-derived default."""
+    py_file = tmp_path / "wf.py"
+    py_file.write_text(
+        _langgraph_script_with_frontmatter(name="Frontmatter Workflow"),
+        encoding="utf-8",
+    )
+
+    created_workflow = {"id": "wf-new", "name": "Frontmatter Workflow"}
+    created_version = {"id": "v-1", "version": 1, "workflow_id": "wf-new"}
+    with respx.mock(assert_all_called=True) as router:
+        create_route = router.post("http://api.test/api/workflows").mock(
+            return_value=httpx.Response(201, json=created_workflow)
+        )
+        router.post("http://api.test/api/workflows/wf-new/versions/ingest").mock(
+            return_value=httpx.Response(201, json=created_version)
+        )
+        result = runner.invoke(
+            app,
+            ["workflow", "upload", str(py_file)],
+            env=env,
+        )
+
+    assert result.exit_code == 0, result.stdout
+    body = json.loads(create_route.calls[0].request.content)
+    assert body["name"] == "Frontmatter Workflow"
+    assert body["slug"] == "frontmatter-workflow"
+
+
+def test_upload_loads_companion_config_from_frontmatter(
+    runner: CliRunner, env: dict[str, str], tmp_path: Path
+) -> None:
+    """Frontmatter config path loads the companion JSON file."""
+    py_file = tmp_path / "wf.py"
+    py_file.write_text(
+        _langgraph_script_with_frontmatter(config_path="wf.config.json"),
+        encoding="utf-8",
+    )
+    config_file = tmp_path / "wf.config.json"
+    config_file.write_text('{"tags": ["from-frontmatter"]}', encoding="utf-8")
+
+    created_workflow = {"id": "wf-new", "name": "wf"}
+    created_version = {"id": "v-1", "version": 1, "workflow_id": "wf-new"}
+    with respx.mock(assert_all_called=True) as router:
+        router.post("http://api.test/api/workflows").mock(
+            return_value=httpx.Response(201, json=created_workflow)
+        )
+        ingest_route = router.post(
+            "http://api.test/api/workflows/wf-new/versions/ingest"
+        ).mock(return_value=httpx.Response(201, json=created_version))
+        result = runner.invoke(
+            app,
+            ["workflow", "upload", str(py_file)],
+            env=env,
+        )
+
+    assert result.exit_code == 0, result.stdout
+    request_body = json.loads(ingest_route.calls[0].request.content)
+    assert request_body["runnable_config"] == {"tags": ["from-frontmatter"]}
+
+
+def test_upload_cli_flag_overrides_frontmatter(
+    runner: CliRunner, env: dict[str, str], tmp_path: Path
+) -> None:
+    """An explicit --name on the CLI wins over the frontmatter name."""
+    py_file = tmp_path / "wf.py"
+    py_file.write_text(
+        _langgraph_script_with_frontmatter(name="From Frontmatter"),
+        encoding="utf-8",
+    )
+
+    created_workflow = {"id": "wf-new", "name": "CLI Wins"}
+    created_version = {"id": "v-1", "version": 1, "workflow_id": "wf-new"}
+    with respx.mock(assert_all_called=True) as router:
+        create_route = router.post("http://api.test/api/workflows").mock(
+            return_value=httpx.Response(201, json=created_workflow)
+        )
+        router.post("http://api.test/api/workflows/wf-new/versions/ingest").mock(
+            return_value=httpx.Response(201, json=created_version)
+        )
+        result = runner.invoke(
+            app,
+            ["workflow", "upload", str(py_file), "--name", "CLI Wins"],
+            env=env,
+        )
+
+    assert result.exit_code == 0, result.stdout
+    body = json.loads(create_route.calls[0].request.content)
+    assert body["name"] == "CLI Wins"
+
+
+def test_upload_uses_frontmatter_entrypoint(
+    runner: CliRunner, env: dict[str, str], tmp_path: Path
+) -> None:
+    """Frontmatter entrypoint is forwarded to ingest."""
+    py_file = tmp_path / "wf.py"
+    py_file.write_text(
+        _langgraph_script_with_frontmatter(entrypoint="build_graph"),
+        encoding="utf-8",
+    )
+
+    created_workflow = {"id": "wf-new", "name": "wf"}
+    created_version = {"id": "v-1", "version": 1, "workflow_id": "wf-new"}
+    with respx.mock(assert_all_called=True) as router:
+        router.post("http://api.test/api/workflows").mock(
+            return_value=httpx.Response(201, json=created_workflow)
+        )
+        ingest_route = router.post(
+            "http://api.test/api/workflows/wf-new/versions/ingest"
+        ).mock(return_value=httpx.Response(201, json=created_version))
+        result = runner.invoke(
+            app,
+            ["workflow", "upload", str(py_file)],
+            env=env,
+        )
+
+    assert result.exit_code == 0, result.stdout
+    request_body = json.loads(ingest_route.calls[0].request.content)
+    assert request_body["entrypoint"] == "build_graph"
